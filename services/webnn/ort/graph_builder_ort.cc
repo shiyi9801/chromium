@@ -755,7 +755,6 @@ void GraphBuilderOrt::AddWhereOperation(const mojom::Where& where) {
     model_builder_.CreateAttribute(attr_to, /*name=*/"to", to_data_type);
 
     std::array<OrtOpAttr**, 1> cast_attributes = {attr_to.get_pptr()};
-    model_builder_.CreateAttribute(attr_to, /*name=*/"to", to_data_type);
     model_builder_.AddNode(kOpTypeCast, cast_node_name, cast_input_names,
                            cast_output_names, cast_attributes);
     next_operand_id_++;
