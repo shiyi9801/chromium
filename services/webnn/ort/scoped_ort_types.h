@@ -13,7 +13,7 @@ namespace webnn::ort {
 
 class ScopedOrtValue {
  public:
-  explicit ScopedOrtValue();
+  ScopedOrtValue();
   ScopedOrtValue(const ScopedOrtValue&) = delete;
   ScopedOrtValue& operator=(const ScopedOrtValue&) = delete;
   ~ScopedOrtValue();
@@ -27,7 +27,7 @@ class ScopedOrtValue {
 
 class ScopedOrtMemoryInfo {
  public:
-  explicit ScopedOrtMemoryInfo();
+  ScopedOrtMemoryInfo();
   ScopedOrtMemoryInfo(const ScopedOrtMemoryInfo&) = delete;
   ScopedOrtMemoryInfo& operator=(const ScopedOrtMemoryInfo&) = delete;
   ~ScopedOrtMemoryInfo();
@@ -41,7 +41,7 @@ class ScopedOrtMemoryInfo {
 
 class ScopedOrtOpAttr {
  public:
-  explicit ScopedOrtOpAttr();
+  ScopedOrtOpAttr();
   ScopedOrtOpAttr(const ScopedOrtOpAttr&) = delete;
   ScopedOrtOpAttr& operator=(const ScopedOrtOpAttr&) = delete;
   ~ScopedOrtOpAttr();
@@ -55,7 +55,7 @@ class ScopedOrtOpAttr {
 
 class ScopedOrtGraph {
  public:
-  explicit ScopedOrtGraph();
+  ScopedOrtGraph();
   ScopedOrtGraph(const ScopedOrtGraph&) = delete;
   ScopedOrtGraph& operator=(const ScopedOrtGraph&) = delete;
   ~ScopedOrtGraph();
@@ -69,7 +69,7 @@ class ScopedOrtGraph {
 
 class ScopedOrtShape {
  public:
-  explicit ScopedOrtShape();
+  ScopedOrtShape();
   ScopedOrtShape(const ScopedOrtShape&) = delete;
   ScopedOrtShape& operator=(const ScopedOrtShape&) = delete;
   ~ScopedOrtShape();
@@ -83,7 +83,7 @@ class ScopedOrtShape {
 
 class ScopedOrtValueInfo {
  public:
-  explicit ScopedOrtValueInfo();
+  ScopedOrtValueInfo();
   ScopedOrtValueInfo(const ScopedOrtValueInfo&) = delete;
   ScopedOrtValueInfo& operator=(const ScopedOrtValueInfo&) = delete;
   ~ScopedOrtValueInfo();
@@ -97,7 +97,7 @@ class ScopedOrtValueInfo {
 
 class ScopedOrtNode {
  public:
-  explicit ScopedOrtNode();
+  ScopedOrtNode();
   ScopedOrtNode(const ScopedOrtNode&) = delete;
   ScopedOrtNode& operator=(const ScopedOrtNode&) = delete;
   ~ScopedOrtNode();
@@ -111,7 +111,7 @@ class ScopedOrtNode {
 
 class ScopedOrtModel {
  public:
-  explicit ScopedOrtModel();
+  ScopedOrtModel();
   ScopedOrtModel(const ScopedOrtModel&) = delete;
   ScopedOrtModel& operator=(const ScopedOrtModel&) = delete;
   ~ScopedOrtModel();
