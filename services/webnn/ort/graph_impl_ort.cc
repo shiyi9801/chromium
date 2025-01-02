@@ -110,8 +110,11 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
   CHECK_STATUS(ort_api->SetSessionGraphOptimizationLevel(
       session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
 
+  // OpenVINO backend doesn't support dumping optimized model since it contains
+  // compiled nodes.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kWebNNOrtDumpModel)) {
+          switches::kWebNNOrtDumpModel) &&
+      context_options->device == mojom::CreateContextOptions::Device::kCpu) {
     static uint64_t dump_count = 0;
     base::FilePath dump_directory =
         base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
@@ -126,8 +129,34 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     // supports it.
   }
 
-  // TODO(https://github.com/shiyi9801/chromium/issues/46): Append OpenVINO EP
-  // for GPU and NPU devices.
+  // Select the execution provider.
+  switch (context_options->device) {
+    case mojom::CreateContextOptions::Device::kCpu: {
+      // TODO: Investigate how to apply layout optimizations (ORT_ENABLE_ALL):
+      // https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html#layout-optimizations
+      CHECK_STATUS(ort_api->SetSessionGraphOptimizationLevel(
+          session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
+      break;
+    }
+    case mojom::CreateContextOptions::Device::kGpu:
+    case mojom::CreateContextOptions::Device::kNpu: {
+      // It is recommended to disable the graph optimization for OpenVINO backend.
+      // https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#other-configuration-settings
+      CHECK_STATUS(ort_api->SetSessionGraphOptimizationLevel(
+          session_options, GraphOptimizationLevel::ORT_DISABLE_ALL));
+
+      std::string device_type =
+          context_options->device == mojom::CreateContextOptions::Device::kGpu
+              ? "GPU"
+              : "NPU";
+      OrtOpenVINOProviderOptions openvino_options;
+      openvino_options.device_type = device_type.c_str();
+
+      CHECK_STATUS(ort_api->SessionOptionsAppendExecutionProvider_OpenVINO(
+          session_options, &openvino_options));
+      break;
+    }
+  }
 
   OrtSession* session;
   const OrtEnv* env = allocator->env();
@@ -143,7 +172,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
                                               "Failed to create ORT session."));
   }
 
-  LOG(ERROR) << "Running on ORT=============";
+  LOG(ERROR) << "========= Running on ORT =============";
 
   return base::WrapUnique(new GraphImplOrt::Session(
       session, std::move(result->model_info->external_data)));
