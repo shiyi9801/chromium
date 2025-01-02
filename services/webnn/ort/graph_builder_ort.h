@@ -94,17 +94,18 @@ class GraphBuilderOrt {
   const mojom::Operand& GetOperand(uint64_t operand_id);
   std::string GetOperandName(uint64_t operand_id);
 
-  // Some initializers must be uploaded to raw data, e.g. Reshape op needs
-  // parameter *shape* as raw data to do shape inference.
+  // Some initializers must be uploaded to raw data, for example:
+  // 1. Reshape op needs parameter *shape* as raw data to do shape inference.
+  // 2. Reduce op needs parameter *axes* as raw data.
   //
   // IssueA: Are there other ops requiring initializer as raw data? Currently we
   // upload all constants into external data (for potential zero-copy) but what
   // if some ops like Reshape can't take external data as initializers?
   //
   // Create a new initializer copied into graph.
-  uint64_t NewInitializerAsRawData(base::span<const uint32_t> shape,
-                                   base::span<const uint8_t> data,
-                                   OperandDataType data_type);
+  std::string CreateInitializerAsRawData(base::span<const uint32_t> shape,
+                                         base::span<const uint8_t> data,
+                                         OperandDataType data_type);
 
   void AddInput(uint64_t input_id);
   void AddOutput(uint64_t output_id);
@@ -112,7 +113,7 @@ class GraphBuilderOrt {
   // TODO: Figure out whether to upload constants to external data or raw data
   // in graph. See IssueA.
   // Add initializer to external data.
-  void AddInitializer(uint64_t constant_id);
+  void AddInitializerAsExternalData(uint64_t constant_id);
 
   template <typename T>
   void AddBinaryOperation(const T& operation, std::string op_type);
@@ -128,9 +129,12 @@ class GraphBuilderOrt {
   void AddClampOperation(const mojom::Clamp& clamp);
   void AddConv2dOperation(const mojom::Conv2d& conv2d);
   void AddGemmOperation(const mojom::Gemm& gemm);
+  void AddInstanceNormalizationOperation(
+      const mojom::InstanceNormalization& instance_normalization);
   void AddLogicalNotOperation(const mojom::ElementWiseUnary& logical_not);
   void AddMatMulOperation(const mojom::Matmul& matmul);
   void AddPool2dOperation(const mojom::Pool2d& pool2d);
+  void AddReduceOperation(const mojom::Reduce& reduce);
   void AddReshapeOperation(const mojom::Reshape& reshape);
   void AddSoftmaxOperation(const mojom::Softmax& softmax);
   void AddTransposeOperation(const mojom::Transpose& transpose);
