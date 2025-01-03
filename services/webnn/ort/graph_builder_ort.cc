@@ -506,8 +506,8 @@ void GraphBuilderOrt::AddClampOperation(const mojom::Clamp& clamp) {
   }
 
   // Verified that we can also use external data here.
-  // TODO: Determine whether to use raw data or external data, which one is
-  // better?
+  // TODO(https://github.com/shiyi9801/chromium/issues/52): Determine whether to
+  // use raw data or external data, which one is better?
   const std::string min_name = CreateInitializerAsRawData(
       /*shape=*/{}, min_value, input_data_type);
   const std::string max_name = CreateInitializerAsRawData(
@@ -607,7 +607,8 @@ void GraphBuilderOrt::AddGemmOperation(const mojom::Gemm& gemm) {
                          attributes);
 }
 
-void GraphBuilderOrt::AddInstanceNormalizationOperation(
+[[nodiscard]] base::expected<void, mojom::ErrorPtr>
+GraphBuilderOrt::AddInstanceNormalizationOperation(
     const mojom::InstanceNormalization& instance_normalization) {
   const OperandDataType input_data_type =
       GetOperand(instance_normalization.output_operand_id)
@@ -620,12 +621,18 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
   const std::vector<uint32_t>& input_shape =
       GetOperand(instance_normalization.input_operand_id).descriptor.shape();
   // TODO(crbug.com/387312212): Support NHWC layout
+  if (instance_normalization.layout ==
+      mojom::InputOperandLayout::kChannelsLast) {
+    return NewNotSupportedError(
+        "[WebNN] Currently InstanceNormalization only supports NCHW layout.");
+  }
   CHECK_EQ(context_properties_.input_operand_layout, InputOperandLayout::kNchw);
   uint32_t input_channel = input_shape[1];
   std::vector<uint32_t> constant_dims = {input_channel};
 
   std::string scale_name, bias_name;
-  // ONNX requires scale and bias inputs.
+  // ONNX requires scale and bias inputs. And they must be uploaded as raw data,
+  // otherwise there will be runtime error.
   if (instance_normalization.scale_operand_id) {
     scale_name =
         GetOperandName(instance_normalization.scale_operand_id.value());
@@ -640,7 +647,7 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
             constant_dims,
             base::span(reinterpret_cast<const uint8_t*>(scale_data_fp16.data()),
                        sizeof(uint16_t) * scale_data_fp16.size()),
-            OperandDataType::kFloat32);
+            input_data_type);
         break;
       }
       case OperandDataType::kFloat32: {
@@ -648,7 +655,7 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
             constant_dims,
             base::span(reinterpret_cast<const uint8_t*>(scale_data.data()),
                        sizeof(float) * scale_data.size()),
-            OperandDataType::kFloat32);
+            input_data_type);
         break;
       }
       default:
@@ -672,7 +679,7 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
             constant_dims,
             base::span(reinterpret_cast<const uint8_t*>(bias_data_fp16.data()),
                        sizeof(uint16_t) * bias_data_fp16.size()),
-            OperandDataType::kFloat32);
+            input_data_type);
         break;
       }
       case OperandDataType::kFloat32: {
@@ -680,7 +687,7 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
             constant_dims,
             base::span(reinterpret_cast<const uint8_t*>(bias_data.data()),
                        sizeof(float) * bias_data.size()),
-            OperandDataType::kFloat32);
+            input_data_type);
         break;
       }
       default:
@@ -702,6 +709,8 @@ void GraphBuilderOrt::AddInstanceNormalizationOperation(
   std::array<const char*, 1> output_names = {output_name.c_str()};
   model_builder_.AddNode(kOpTypeInstanceNormalization, node_name, input_names,
                          output_names, attributes);
+
+  return base::ok();
 }
 
 void GraphBuilderOrt::AddLogicalNotOperation(
@@ -811,8 +820,8 @@ void GraphBuilderOrt::AddPool2dOperation(const mojom::Pool2d& pool2d) {
                          attributes);
 }
 
-// TODO: There is an issue of 'reduceSumSquare float32 1D tensor with empty
-// axes'
+// TODO(https://github.com/shiyi9801/chromium/issues/53): 'reduceSumSquare
+// float32 1D tensor with empty axes' test case fails
 void GraphBuilderOrt::AddReduceOperation(const mojom::Reduce& reduce) {
   const std::string input_name = GetOperandName(reduce.input_operand_id);
   std::vector<const char*> input_names = {input_name.c_str()};
@@ -992,8 +1001,8 @@ GraphBuilderOrt::BuildModel() {
         break;
       }
       case mojom::Operation::Tag::kInstanceNormalization: {
-        AddInstanceNormalizationOperation(
-            *operation->get_instance_normalization());
+        RETURN_IF_ERROR(AddInstanceNormalizationOperation(
+            *operation->get_instance_normalization()));
         break;
       }
       case mojom::Operation::Tag::kMatmul: {

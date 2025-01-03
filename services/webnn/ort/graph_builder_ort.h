@@ -98,9 +98,10 @@ class GraphBuilderOrt {
   // 1. Reshape op needs parameter *shape* as raw data to do shape inference.
   // 2. Reduce op needs parameter *axes* as raw data.
   //
-  // IssueA: Are there other ops requiring initializer as raw data? Currently we
-  // upload all constants into external data (for potential zero-copy) but what
-  // if some ops like Reshape can't take external data as initializers?
+  // Issue(https://github.com/shiyi9801/chromium/issues/52): Are there other ops
+  // requiring initializer as raw data? Currently we upload all constants into
+  // external data (for potential zero-copy) but what if some ops like Reshape
+  // can't take external data as initializers?
   //
   // Create a new initializer copied into graph.
   std::string CreateInitializerAsRawData(base::span<const uint32_t> shape,
@@ -111,7 +112,7 @@ class GraphBuilderOrt {
   void AddOutput(uint64_t output_id);
 
   // TODO: Figure out whether to upload constants to external data or raw data
-  // in graph. See IssueA.
+  // in graph. See Issue(https://github.com/shiyi9801/chromium/issues/52).
   // Add initializer to external data.
   void AddInitializerAsExternalData(uint64_t constant_id);
 
@@ -129,7 +130,8 @@ class GraphBuilderOrt {
   void AddClampOperation(const mojom::Clamp& clamp);
   void AddConv2dOperation(const mojom::Conv2d& conv2d);
   void AddGemmOperation(const mojom::Gemm& gemm);
-  void AddInstanceNormalizationOperation(
+  [[nodiscard]] base::expected<void, mojom::ErrorPtr>
+  AddInstanceNormalizationOperation(
       const mojom::InstanceNormalization& instance_normalization);
   void AddLogicalNotOperation(const mojom::ElementWiseUnary& logical_not);
   void AddMatMulOperation(const mojom::Matmul& matmul);
