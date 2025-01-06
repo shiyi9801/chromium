@@ -89,9 +89,6 @@ constexpr char kOpTypeWhere[] = "Where";
 
 // constexpr char kBuildGraphError[] = "Failed to build graph.";
 
-// Define the minimum size(in bytes) to use external data.
-constexpr size_t kMinExternalDataSize = 128;
-
 base::unexpected<mojom::ErrorPtr> NewNotSupportedError(std::string message) {
   return base::unexpected(mojom::Error::New(
       mojom::Error::Code::kNotSupportedError, std::move(message)));
@@ -247,23 +244,20 @@ std::string GraphBuilderOrt::GetOperandName(uint64_t operand_id) {
 template <typename T>
 std::string GraphBuilderOrt::CreateInitializer(base::span<const uint32_t> shape,
                                                base::span<const T> data,
-                                               OperandDataType data_type,
-                                               bool used_for_shape_inference) {
+                                               OperandDataType data_type) {
   std::string name = GetInsertedOperandName(next_operand_id_);
   OperandInfo operand_info{name, data_type, shape};
-  size_t byte_size = sizeof(T) * data.size();
-
-  if (byte_size < kMinExternalDataSize || used_for_shape_inference) {
-    model_builder_.AddInitializerAsRawData(
-        name, operand_info.int64_shape,
-        base::span(reinterpret_cast<const uint8_t*>(data.data()), byte_size),
-        operand_info.onnx_data_type);
+  base::span<const uint8_t> byte_span;
+  if constexpr (std::floating_point<T>) {
+    // Floating point types do not have unique object representations, but
+    // this code appears to be using a byte span to type-erase, which is fine.
+    byte_span = base::as_byte_span(base::allow_nonunique_obj, data);
   } else {
-    model_builder_.AddInitializerAsExternalData(
-        name, operand_info.int64_shape,
-        base::span(reinterpret_cast<const uint8_t*>(data.data()), byte_size),
-        operand_info.onnx_data_type);
+    byte_span = base::as_byte_span(data);
   }
+
+  model_builder_.AddInitializer(name, operand_info.int64_shape, byte_span,
+                                operand_info.onnx_data_type);
 
   CHECK(result_->id_to_operand_info
             .try_emplace(next_operand_id_, std::move(operand_info))
@@ -302,24 +296,15 @@ void GraphBuilderOrt::AddOutput(uint64_t output_id) {
             .second);
 }
 
-void GraphBuilderOrt::AddInitializer(uint64_t constant_id,
-                                     bool used_for_shape_inference) {
+void GraphBuilderOrt::AddInitializer(uint64_t constant_id) {
   const WebNNConstantOperand& operand = *constant_operands_.at(constant_id);
   std::string name = GetOperandName(constant_id);
 
   OperandInfo operand_info{name, operand.descriptor().data_type(),
                            operand.descriptor().shape()};
-  size_t byte_size = operand.ByteSpan().size();
-
-  if (byte_size < kMinExternalDataSize || used_for_shape_inference) {
-    model_builder_.AddInitializerAsRawData(name, operand_info.int64_shape,
-                                           operand.ByteSpan(),
-                                           operand_info.onnx_data_type);
-  } else {
-    model_builder_.AddInitializerAsExternalData(name, operand_info.int64_shape,
-                                                operand.ByteSpan(),
-                                                operand_info.onnx_data_type);
-  }
+  model_builder_.AddInitializer(name, operand_info.int64_shape,
+                                operand.ByteSpan(),
+                                operand_info.onnx_data_type);
 
   CHECK(result_->id_to_operand_info
             .try_emplace(constant_id, std::move(operand_info))
@@ -608,9 +593,8 @@ void GraphBuilderOrt::AddExpandOperation(const mojom::Expand& expand) {
   base::ranges::transform(
       output_shape, std::back_inserter(shape_values),
       [](uint32_t dim) { return static_cast<int64_t>(dim); });
-  // Expand op needs parameter *shape* as raw data to do shape inference.
   const std::string shape_name = CreateInitializer<int64_t>(
-      shape_dims, shape_values, OperandDataType::kInt64, true);
+      shape_dims, shape_values, OperandDataType::kInt64);
 
   std::array<const char*, 2> input_names = {input_name.c_str(),
                                             shape_name.c_str()};
@@ -868,9 +852,8 @@ void GraphBuilderOrt::AddReduceOperation(const mojom::Reduce& reduce) {
     // axes is an operand with data type int64, not an attribute.
     std::vector<uint32_t> axes_dims = {
         base::checked_cast<uint32_t>(axes.size())};
-    // Reduce op needs parameter *axes* as raw data to do shape inference.
-    axes_name = CreateInitializer<int64_t>(axes_dims, axes,
-                                           OperandDataType::kInt64, true);
+    axes_name =
+        CreateInitializer<int64_t>(axes_dims, axes, OperandDataType::kInt64);
     input_names.push_back(axes_name.c_str());
   }
 
@@ -912,9 +895,8 @@ void GraphBuilderOrt::AddReshapeOperation(const mojom::Reshape& reshape) {
   base::ranges::transform(
       output_shape, std::back_inserter(shape_values),
       [](uint32_t dim) { return static_cast<int64_t>(dim); });
-  // Reshape op needs parameter *shape* as raw data to do shape inference.
   const std::string shape_name = CreateInitializer<int64_t>(
-      shape_dims, shape_values, OperandDataType::kInt64, true);
+      shape_dims, shape_values, OperandDataType::kInt64);
 
   std::array<const char*, 2> input_names = {input_name.c_str(),
                                             shape_name.c_str()};
@@ -942,23 +924,20 @@ void GraphBuilderOrt::AddSliceOperation(const mojom::Slice& slice) {
   // Starts is an operand with data type int64, not an attribute.
   std::vector<uint32_t> starts_shape = {
       base::checked_cast<uint32_t>(beginnings.size())};
-  // Slice op needs parameter *starts* as raw data to do shape inference.
   const std::string starts_name = CreateInitializer<int64_t>(
-      starts_shape, beginnings, OperandDataType::kInt64, true);
+      starts_shape, beginnings, OperandDataType::kInt64);
 
   // Ends is an operand with data type int64, not an attribute.
   std::vector<uint32_t> ends_shape = {
       base::checked_cast<uint32_t>(endings.size())};
-  // Slice op needs parameter *ends* as raw data to do shape inference.
-  const std::string ends_name = CreateInitializer<int64_t>(
-      ends_shape, endings, OperandDataType::kInt64, true);
+  const std::string ends_name =
+      CreateInitializer<int64_t>(ends_shape, endings, OperandDataType::kInt64);
 
   // Steps is an operand with data type int64, not an attribute.
   std::vector<uint32_t> steps_shape = {
       base::checked_cast<uint32_t>(strides.size())};
-  // Slice op needs parameter *steps* as raw data to do shape inference.
-  const std::string steps_name = CreateInitializer<int64_t>(
-      steps_shape, strides, OperandDataType::kInt64, true);
+  const std::string steps_name =
+      CreateInitializer<int64_t>(steps_shape, strides, OperandDataType::kInt64);
 
   // Axes is an optional input, if not provided, it is an empty string and will
   // be treated as [0, 1, …, len(starts) - 1]:
