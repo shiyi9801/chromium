@@ -21,7 +21,7 @@
 #include "services/webnn/webnn_switches.h"
 #include "third_party/fp16/src/include/fp16.h"
 
-namespace webnn {
+namespace webnn::ort {
 
 namespace {
 
@@ -148,24 +148,56 @@ std::string MapReduceKindToOrtOpType(mojom::Reduce::Kind kind) {
   }
 }
 
-std::vector<uint16_t> ConvertFloat32ToFloat16(base::span<const float> data) {
-  std::vector<uint16_t> data_fp16(data.size());
+std::vector<Float16> Float16FromFloat32(base::span<const float> data) {
+  std::vector<Float16> data_fp16(data.size());
   for (size_t i = 0; i < data.size(); ++i) {
-    data_fp16[i] = fp16_ieee_from_fp32_value(data[i]);
+    data_fp16[i] = Float16::FromFloat32(data[i]);
   }
   return data_fp16;
 }
 
-}  // namespace
+// Maps a DataType to a `ONNXTensorElementDataType`. Other `TensorTypeMap`
+// overloads may be declared below as needed.
+//
+// Example: TensorTypeMap<uint32_t>::value ->
+// ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32
+template <typename DataType>
+  requires internal::IsSupportedTensorType<DataType>
+struct TensorTypeMap;
 
-namespace ort {
+template <>
+struct TensorTypeMap<float> {
+  static constexpr ONNXTensorElementDataType value =
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+};
+
+template <>
+struct TensorTypeMap<Float16> {
+  static constexpr ONNXTensorElementDataType value =
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
+};
+
+template <>
+struct TensorTypeMap<int64_t> {
+  static constexpr ONNXTensorElementDataType value =
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64;
+};
+
+}  // namespace
 
 GraphBuilderOrt::OperandInfo::OperandInfo(
     std::string name,
     OperandDataType data_type,
     base::span<const uint32_t> uint32_shape)
-    : name(std::move(name)),
-      onnx_data_type(OperandTypeToONNXTensorElementDataType(data_type)) {
+    : OperandInfo(std::move(name),
+                  OperandTypeToONNXTensorElementDataType(data_type),
+                  std::move(uint32_shape)) {}
+
+GraphBuilderOrt::OperandInfo::OperandInfo(
+    std::string name,
+    ONNXTensorElementDataType data_type,
+    base::span<const uint32_t> uint32_shape)
+    : name(std::move(name)), onnx_data_type(data_type) {
   base::ranges::transform(
       uint32_shape.begin(), uint32_shape.end(), std::back_inserter(int64_shape),
       [](uint32_t dim) { return static_cast<int64_t>(dim); });
@@ -250,14 +282,15 @@ std::string GraphBuilderOrt::GetOperandName(uint64_t operand_id) {
   }
 }
 
-template <typename T>
-std::string GraphBuilderOrt::CreateInitializer(base::span<const uint32_t> shape,
-                                               base::span<const T> data,
-                                               OperandDataType data_type) {
+template <typename DataType>
+  requires internal::IsSupportedTensorType<DataType>
+std::string GraphBuilderOrt::CreateInitializer(
+    base::span<const uint32_t> shape,
+    base::span<const DataType> data) {
   std::string name = GetInsertedOperandName(next_operand_id_);
-  OperandInfo operand_info{name, data_type, shape};
+  OperandInfo operand_info{name, TensorTypeMap<DataType>::value, shape};
   base::span<const uint8_t> byte_span;
-  if constexpr (std::floating_point<T>) {
+  if constexpr (std::floating_point<DataType>) {
     // Floating point types do not have unique object representations, but
     // this code appears to be using a byte span to type-erase, which is fine.
     byte_span = base::as_byte_span(base::allow_nonunique_obj, data);
@@ -281,6 +314,13 @@ std::string GraphBuilderOrt::CreateInitializer(base::span<const uint32_t> shape,
             .second);
   next_operand_id_++;
   return name;
+}
+
+template <typename DataType>
+  requires internal::IsSupportedTensorType<DataType>
+std::string GraphBuilderOrt::CreateScalarInitializer(const DataType& value) {
+  return CreateInitializer(
+      /*shape=*/{}, base::span(&value, 1u));
 }
 
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
@@ -614,23 +654,19 @@ void GraphBuilderOrt::AddClampOperation(const mojom::Clamp& clamp) {
 
   // Min and max are 0-D operands with the same data type of input.
 
-  base::HeapArray<uint8_t> min_value;
-  base::HeapArray<uint8_t> max_value;
+  std::string min_name;
+  std::string max_name;
   switch (input_data_type) {
     case OperandDataType::kFloat32: {
-      min_value = base::HeapArray<uint8_t>::CopiedFrom(base::span(
-          reinterpret_cast<const uint8_t*>(&clamp.min_value), sizeof(float)));
-      max_value = base::HeapArray<uint8_t>::CopiedFrom(base::span(
-          reinterpret_cast<const uint8_t*>(&clamp.max_value), sizeof(float)));
+      min_name = CreateScalarInitializer<float>(clamp.min_value);
+      max_name = CreateScalarInitializer<float>(clamp.max_value);
       break;
     }
     case OperandDataType::kFloat16: {
-      uint16_t fp16_min = fp16_ieee_from_fp32_value(clamp.min_value);
-      uint16_t fp16_max = fp16_ieee_from_fp32_value(clamp.max_value);
-      min_value = base::HeapArray<uint8_t>::CopiedFrom(base::span(
-          reinterpret_cast<const uint8_t*>(&fp16_min), sizeof(uint16_t)));
-      max_value = base::HeapArray<uint8_t>::CopiedFrom(base::span(
-          reinterpret_cast<const uint8_t*>(&fp16_max), sizeof(uint16_t)));
+      min_name = CreateScalarInitializer<Float16>(
+          Float16::FromFloat32(clamp.min_value));
+      max_name = CreateScalarInitializer<Float16>(
+          Float16::FromFloat32(clamp.max_value));
       break;
     }
     // TODO(https://github.com/shiyi9801/chromium/issues/60): Add other data
@@ -639,11 +675,6 @@ void GraphBuilderOrt::AddClampOperation(const mojom::Clamp& clamp) {
       NOTREACHED()
           << "[WebNN] Clamp only supports float32 and float16 data type.";
   }
-
-  const std::string min_name = CreateInitializer<uint8_t>(
-      /*shape=*/{}, min_value, input_data_type);
-  const std::string max_name = CreateInitializer<uint8_t>(
-      /*shape=*/{}, max_value, input_data_type);
 
   std::array<const char*, 3> input_names = {input_name.c_str(),
                                             min_name.c_str(), max_name.c_str()};
@@ -716,8 +747,8 @@ void GraphBuilderOrt::AddExpandOperation(const mojom::Expand& expand) {
   base::ranges::transform(
       output_shape, std::back_inserter(shape_values),
       [](uint32_t dim) { return static_cast<int64_t>(dim); });
-  const std::string shape_name = CreateInitializer<int64_t>(
-      shape_dims, shape_values, OperandDataType::kInt64);
+  const std::string shape_name =
+      CreateInitializer<int64_t>(shape_dims, shape_values);
 
   std::array<const char*, 2> input_names = {input_name.c_str(),
                                             shape_name.c_str()};
@@ -814,15 +845,12 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> scale_data(input_channel, 1.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16 =
-            ConvertFloat32ToFloat16(scale_data);
-        scale_name = CreateInitializer<uint16_t>(constant_dims, scale_data_fp16,
-                                                 input_data_type);
+        std::vector<Float16> scale_data_fp16 = Float16FromFloat32(scale_data);
+        scale_name = CreateInitializer<Float16>(constant_dims, scale_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
-        scale_name = CreateInitializer<float>(constant_dims, scale_data,
-                                              input_data_type);
+        scale_name = CreateInitializer<float>(constant_dims, scale_data);
         break;
       }
       default:
@@ -840,15 +868,12 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> bias_data(input_channel, 0.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<uint16_t> bias_data_fp16 =
-            ConvertFloat32ToFloat16(bias_data);
-        bias_name = CreateInitializer<uint16_t>(constant_dims, bias_data_fp16,
-                                                input_data_type);
+        std::vector<Float16> bias_data_fp16 = Float16FromFloat32(bias_data);
+        bias_name = CreateInitializer<Float16>(constant_dims, bias_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
-        bias_name =
-            CreateInitializer<float>(constant_dims, bias_data, input_data_type);
+        bias_name = CreateInitializer<float>(constant_dims, bias_data);
         break;
       }
       default:
@@ -1123,8 +1148,7 @@ void GraphBuilderOrt::AddReduceOperation(const mojom::Reduce& reduce) {
     // axes is an operand with data type int64, not an attribute.
     std::vector<uint32_t> axes_dims = {
         base::checked_cast<uint32_t>(axes.size())};
-    axes_name =
-        CreateInitializer<int64_t>(axes_dims, axes, OperandDataType::kInt64);
+    axes_name = CreateInitializer<int64_t>(axes_dims, axes);
     input_names.push_back(axes_name.c_str());
   }
 
@@ -1164,8 +1188,8 @@ void GraphBuilderOrt::AddReshapeOperation(const mojom::Reshape& reshape) {
   base::ranges::transform(
       output_shape, std::back_inserter(shape_values),
       [](uint32_t dim) { return static_cast<int64_t>(dim); });
-  const std::string shape_name = CreateInitializer<int64_t>(
-      shape_dims, shape_values, OperandDataType::kInt64);
+  const std::string shape_name =
+      CreateInitializer<int64_t>(shape_dims, shape_values);
 
   std::array<const char*, 2> input_names = {input_name.c_str(),
                                             shape_name.c_str()};
@@ -1193,20 +1217,19 @@ void GraphBuilderOrt::AddSliceOperation(const mojom::Slice& slice) {
   // Starts is an operand with data type int64, not an attribute.
   std::vector<uint32_t> starts_shape = {
       base::checked_cast<uint32_t>(beginnings.size())};
-  const std::string starts_name = CreateInitializer<int64_t>(
-      starts_shape, beginnings, OperandDataType::kInt64);
+  const std::string starts_name =
+      CreateInitializer<int64_t>(starts_shape, beginnings);
 
   // Ends is an operand with data type int64, not an attribute.
   std::vector<uint32_t> ends_shape = {
       base::checked_cast<uint32_t>(endings.size())};
-  const std::string ends_name =
-      CreateInitializer<int64_t>(ends_shape, endings, OperandDataType::kInt64);
+  const std::string ends_name = CreateInitializer<int64_t>(ends_shape, endings);
 
   // Steps is an operand with data type int64, not an attribute.
   std::vector<uint32_t> steps_shape = {
       base::checked_cast<uint32_t>(strides.size())};
   const std::string steps_name =
-      CreateInitializer<int64_t>(steps_shape, strides, OperandDataType::kInt64);
+      CreateInitializer<int64_t>(steps_shape, strides);
 
   // Axes is an optional input, if not provided, it is an empty string and will
   // be treated as [0, 1, …, len(starts) - 1]:
@@ -1430,6 +1453,4 @@ GraphBuilderOrt::BuildModel() {
   return base::ok();
 }
 
-}  // namespace ort
-
-}  // namespace webnn
+}  // namespace webnn::ort
