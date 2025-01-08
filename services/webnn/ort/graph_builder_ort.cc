@@ -148,14 +148,6 @@ std::string MapReduceKindToOrtOpType(mojom::Reduce::Kind kind) {
   }
 }
 
-std::vector<Float16> Float16FromFloat32(base::span<const float> data) {
-  std::vector<Float16> data_fp16(data.size());
-  for (size_t i = 0; i < data.size(); ++i) {
-    data_fp16[i] = Float16::FromFloat32(data[i]);
-  }
-  return data_fp16;
-}
-
 // Maps a DataType to a `ONNXTensorElementDataType`. Other `TensorTypeMap`
 // overloads may be declared below as needed.
 //
@@ -295,6 +287,9 @@ std::string GraphBuilderOrt::CreateInitializer(
     // this code appears to be using a byte span to type-erase, which is fine.
     byte_span = base::as_byte_span(base::allow_nonunique_obj, data);
   } else {
+    // It is safe to call `base::as_byte_span(data)` for `base::span<const
+    // Float16>`, because `Float16` is a wrapper around `uint16_t`, not a real
+    // floating point type.
     byte_span = base::as_byte_span(data);
   }
 
@@ -319,8 +314,8 @@ std::string GraphBuilderOrt::CreateInitializer(
 template <typename DataType>
   requires internal::IsSupportedTensorType<DataType>
 std::string GraphBuilderOrt::CreateScalarInitializer(const DataType& value) {
-  return CreateInitializer(
-      /*shape=*/{}, base::span(&value, 1u));
+  return CreateInitializer<DataType>(
+      /*shape=*/{}, base::span_from_ref(value));
 }
 
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
@@ -845,7 +840,8 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> scale_data(input_channel, 1.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<Float16> scale_data_fp16 = Float16FromFloat32(scale_data);
+        std::vector<Float16> scale_data_fp16(input_channel,
+                                             Float16::FromFloat32(1.0f));
         scale_name = CreateInitializer<Float16>(constant_dims, scale_data_fp16);
         break;
       }
@@ -868,7 +864,8 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> bias_data(input_channel, 0.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<Float16> bias_data_fp16 = Float16FromFloat32(bias_data);
+        std::vector<Float16> bias_data_fp16(input_channel,
+                                            Float16::FromFloat32(0.0f));
         bias_name = CreateInitializer<Float16>(constant_dims, bias_data_fp16);
         break;
       }
@@ -931,16 +928,14 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
       std::string zero_name;
       switch (input_data_type) {
         case OperandDataType::kFloat16: {
-          std::vector<uint16_t> zero_data_fp16(checked_input_size.ValueOrDie(),
-                                               fp16_ieee_from_fp32_value(0.0f));
-          zero_name = CreateInitializer<uint16_t>(input_shape, zero_data_fp16,
-                                                  input_data_type);
+          std::vector<Float16> zero_data_fp16(checked_input_size.ValueOrDie(),
+                                              Float16::FromFloat32(0.0f));
+          zero_name = CreateInitializer<Float16>(input_shape, zero_data_fp16);
           break;
         }
         case OperandDataType::kFloat32: {
           std::vector<float> zero_data(checked_input_size.ValueOrDie(), 0.0f);
-          zero_name =
-              CreateInitializer<float>(input_shape, zero_data, input_data_type);
+          zero_name = CreateInitializer<float>(input_shape, zero_data);
           break;
         }
         default:
@@ -999,16 +994,14 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   } else {
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16(checked_scale_size.ValueOrDie(),
-                                              fp16_ieee_from_fp32_value(1.0f));
-        scale_name = CreateInitializer<uint16_t>(scale_dims, scale_data_fp16,
-                                                 input_data_type);
+        std::vector<Float16> scale_data_fp16(checked_scale_size.ValueOrDie(),
+                                             Float16::FromFloat32(1.0f));
+        scale_name = CreateInitializer<Float16>(scale_dims, scale_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
         std::vector<float> scale_data(checked_scale_size.ValueOrDie(), 1.0f);
-        scale_name =
-            CreateInitializer<float>(scale_dims, scale_data, input_data_type);
+        scale_name = CreateInitializer<float>(scale_dims, scale_data);
         break;
       }
       default:
