@@ -110,8 +110,10 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
   CHECK_STATUS(ort_api->SetSessionGraphOptimizationLevel(
       session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
 
-  // OpenVINO backend doesn't support dumping optimized model since it contains
-  // compiled nodes.
+  // TODO(https://github.com/shiyi9801/chromium/issues/72): Investigate if there
+  // is another way to dump the model for OpenVINO EP.
+  // OpenVINO EP doesn't support dumping the optimized model since it contains
+  // compiled nodes which cannnot be serialized.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kWebNNOrtDumpModel) &&
       context_options->device == mojom::CreateContextOptions::Device::kCpu) {
