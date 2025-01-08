@@ -137,7 +137,8 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
   // Select the execution provider.
   switch (device_type) {
     case mojom::CreateContextOptions::Device::kCpu: {
-      // TODO: Investigate how to apply layout optimizations (ORT_ENABLE_ALL):
+      // TODO(https://github.com/shiyi9801/chromium/issues/58): Investigate how
+      // to apply layout optimizations (ORT_ENABLE_ALL).
       // https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html#layout-optimizations
       CHECK_STATUS(ort_api->SetSessionGraphOptimizationLevel(
           session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
@@ -157,8 +158,8 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
       OrtOpenVINOProviderOptions openvino_options;
       openvino_options.device_type = openvino_device_type.c_str();
 
-      // TODO: Fail early when creating the context if the OpenVINO EP is not
-      // supported.
+      // TODO(https://github.com/shiyi9801/chromium/issues/74): Fail early when
+      // creating the context if the OpenVINO EP is not supported.
       OrtStatus* append_openvino_status =
           ort_api->SessionOptionsAppendExecutionProvider_OpenVINO(
               session_options, &openvino_options);
