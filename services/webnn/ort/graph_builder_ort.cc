@@ -163,6 +163,7 @@ struct TensorTypeMap<float> {
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
 };
 
+// Use uint16_t to carry bits of float16.
 template <>
 struct TensorTypeMap<uint16_t> {
   static constexpr ONNXTensorElementDataType value =

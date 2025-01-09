@@ -116,7 +116,7 @@ class GraphBuilderOrt {
   //
   // The provided data must match `DataType` according to the ONNX operators'
   // data type constraints. For example: Provide float data for ONNX float data
-  // type.
+  // type. In particular, we use uint16_t to carry bits of float16.
   //
   // The guidelines recommends using raw data when:
   // 1. The byte size of the data is less than 128.
