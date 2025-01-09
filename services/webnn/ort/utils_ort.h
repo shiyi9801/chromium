@@ -11,20 +11,6 @@
 
 namespace webnn::ort {
 
-class Float16 {
- public:
-  Float16();
-
-  static Float16 FromFloat32(float f32);
-
-  float ToFloat32() const;
-
- private:
-  explicit Float16(uint16_t raw_bits);
-
-  uint16_t bits_;
-};
-
 ONNXTensorElementDataType OperandTypeToONNXTensorElementDataType(
     OperandDataType data_type);
 

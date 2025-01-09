@@ -7,7 +7,6 @@
 #include "base/strings/strcat.h"
 #include "services/webnn/ort/platform_functions_ort.h"
 #include "services/webnn/public/cpp/webnn_errors.h"
-#include "third_party/fp16/src/include/fp16.h"
 
 namespace webnn::ort {
 
@@ -16,19 +15,6 @@ namespace {
 const char kBackendName[] = "Ort: ";
 
 }  // namespace
-
-Float16::Float16() : bits_(0) {}
-
-// static
-Float16 Float16::FromFloat32(float f32) {
-  return Float16(fp16_ieee_from_fp32_value(f32));
-}
-
-float Float16::ToFloat32() const {
-  return fp16_ieee_to_fp32_value(bits_);
-}
-
-Float16::Float16(uint16_t raw_bits) : bits_(raw_bits) {}
 
 ONNXTensorElementDataType OperandTypeToONNXTensorElementDataType(
     OperandDataType data_type) {

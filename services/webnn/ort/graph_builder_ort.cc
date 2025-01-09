@@ -164,7 +164,7 @@ struct TensorTypeMap<float> {
 };
 
 template <>
-struct TensorTypeMap<Float16> {
+struct TensorTypeMap<uint16_t> {
   static constexpr ONNXTensorElementDataType value =
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
 };
@@ -287,9 +287,6 @@ std::string GraphBuilderOrt::CreateInitializer(
     // this code appears to be using a byte span to type-erase, which is fine.
     byte_span = base::as_byte_span(base::allow_nonunique_obj, data);
   } else {
-    // It is safe to call `base::as_byte_span(data)` for `base::span<const
-    // Float16>`, because `Float16` is a wrapper around `uint16_t`, not a real
-    // floating point type.
     byte_span = base::as_byte_span(data);
   }
 
@@ -405,14 +402,13 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
       case OperandDataType::kFloat16: {
         std::vector<uint16_t> scale_data_fp16(input_channel,
                                               fp16_ieee_from_fp32_value(1.0f));
-        scale_name = CreateInitializer<uint16_t>(constant_dims, scale_data_fp16,
-                                                 input_data_type);
+        scale_name =
+            CreateInitializer<uint16_t>(constant_dims, scale_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
         std::vector<float> scale_data(input_channel, 1.0f);
-        scale_name = CreateInitializer<float>(constant_dims, scale_data,
-                                              input_data_type);
+        scale_name = CreateInitializer<float>(constant_dims, scale_data);
         break;
       }
       default:
@@ -431,14 +427,12 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
       case OperandDataType::kFloat16: {
         std::vector<uint16_t> bias_data_fp16(input_channel,
                                              fp16_ieee_from_fp32_value(0.0f));
-        bias_name = CreateInitializer<uint16_t>(constant_dims, bias_data_fp16,
-                                                input_data_type);
+        bias_name = CreateInitializer<uint16_t>(constant_dims, bias_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
         std::vector<float> bias_data(input_channel, 0.0f);
-        bias_name =
-            CreateInitializer<float>(constant_dims, bias_data, input_data_type);
+        bias_name = CreateInitializer<float>(constant_dims, bias_data);
         break;
       }
       default:
@@ -653,15 +647,15 @@ void GraphBuilderOrt::AddClampOperation(const mojom::Clamp& clamp) {
   std::string max_name;
   switch (input_data_type) {
     case OperandDataType::kFloat32: {
-      min_name = CreateScalarInitializer<float>(clamp.min_value);
-      max_name = CreateScalarInitializer<float>(clamp.max_value);
+      min_name = CreateScalarInitializer(clamp.min_value);
+      max_name = CreateScalarInitializer(clamp.max_value);
       break;
     }
     case OperandDataType::kFloat16: {
-      min_name = CreateScalarInitializer<Float16>(
-          Float16::FromFloat32(clamp.min_value));
-      max_name = CreateScalarInitializer<Float16>(
-          Float16::FromFloat32(clamp.max_value));
+      min_name =
+          CreateScalarInitializer(fp16_ieee_from_fp32_value(clamp.min_value));
+      max_name =
+          CreateScalarInitializer(fp16_ieee_from_fp32_value(clamp.max_value));
       break;
     }
     // TODO(https://github.com/shiyi9801/chromium/issues/60): Add other data
@@ -840,9 +834,10 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> scale_data(input_channel, 1.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<Float16> scale_data_fp16(input_channel,
-                                             Float16::FromFloat32(1.0f));
-        scale_name = CreateInitializer<Float16>(constant_dims, scale_data_fp16);
+        std::vector<uint16_t> scale_data_fp16(input_channel,
+                                              fp16_ieee_from_fp32_value(1.0f));
+        scale_name =
+            CreateInitializer<uint16_t>(constant_dims, scale_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
@@ -864,9 +859,9 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     std::vector<float> bias_data(input_channel, 0.0f);
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<Float16> bias_data_fp16(input_channel,
-                                            Float16::FromFloat32(0.0f));
-        bias_name = CreateInitializer<Float16>(constant_dims, bias_data_fp16);
+        std::vector<uint16_t> bias_data_fp16(input_channel,
+                                             fp16_ieee_from_fp32_value(0.0f));
+        bias_name = CreateInitializer<uint16_t>(constant_dims, bias_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {
@@ -928,9 +923,9 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
       std::string zero_name;
       switch (input_data_type) {
         case OperandDataType::kFloat16: {
-          std::vector<Float16> zero_data_fp16(checked_input_size.ValueOrDie(),
-                                              Float16::FromFloat32(0.0f));
-          zero_name = CreateInitializer<Float16>(input_shape, zero_data_fp16);
+          std::vector<uint16_t> zero_data_fp16(checked_input_size.ValueOrDie(),
+                                               fp16_ieee_from_fp32_value(0.0f));
+          zero_name = CreateInitializer<uint16_t>(input_shape, zero_data_fp16);
           break;
         }
         case OperandDataType::kFloat32: {
@@ -994,9 +989,9 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   } else {
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<Float16> scale_data_fp16(checked_scale_size.ValueOrDie(),
-                                             Float16::FromFloat32(1.0f));
-        scale_name = CreateInitializer<Float16>(scale_dims, scale_data_fp16);
+        std::vector<uint16_t> scale_data_fp16(checked_scale_size.ValueOrDie(),
+                                              fp16_ieee_from_fp32_value(1.0f));
+        scale_name = CreateInitializer<uint16_t>(scale_dims, scale_data_fp16);
         break;
       }
       case OperandDataType::kFloat32: {

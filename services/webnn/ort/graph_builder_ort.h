@@ -38,7 +38,7 @@ namespace internal {
 template <typename T, typename... U>
 concept IsAnyOf = (std::same_as<T, U> || ...);
 template <typename T>
-concept IsSupportedTensorType = IsAnyOf<T, float, Float16, int64_t>;
+concept IsSupportedTensorType = IsAnyOf<T, float, uint16_t, int64_t>;
 
 }  // namespace internal
 
