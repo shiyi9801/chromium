@@ -117,6 +117,8 @@ ContextProperties ContextImplOrt::GetContextProperties() {
        /*lstm_input=*/{},
        /*lstm_cell_input=*/{},
        /*matmul_input=*/DataTypeConstraint::kFloat16To32Ints32To64,
+       // TODO: Support more data types including int4.
+       // https://github.com/shiyi9801/chromium/issues/85
        /*pad_input=*/DataTypeConstraint::kFloat16To32,
        /*average_pool2d_input=*/DataTypeConstraint::kFloat16To32,
        /*l2_pool2d_input=*/DataTypeConstraint::kFloat16To32,
