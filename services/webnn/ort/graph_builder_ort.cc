@@ -634,7 +634,11 @@ void GraphBuilderOrt::AddArgMinMaxOperation(
   std::array<OrtOpAttr*, 2> attributes = {attr_axis.Release(),
                                           attr_keepdims.Release()};
 
-  // Onnx ArgMin/Max only supports int64 output.
+  // Onnx ArgMin/Max only supports int64 output. To support int32 output, it is
+  // necessary to insert a cast operator after ArgMin/Max. To cast Argmin/Max
+  // output from int64 to int32 is safe since a valid operand dimension is
+  // greater than zero and in the range of int32.
+  // https://www.w3.org/TR/webnn/#valid-dimension
   OperandDataType output_data_type =
       GetOperand(arg_min_max.output_operand_id).descriptor.data_type();
   bool need_cast = output_data_type != OperandDataType::kInt64;
@@ -662,6 +666,7 @@ void GraphBuilderOrt::AddArgMinMaxOperation(
     std::array<const char*, 1> cast_input_names = {int64_output_name.c_str()};
     std::array<const char*, 1> cast_output_names = {output_name.c_str()};
 
+    CHECK_EQ(output_data_type, OperandDataType::kInt32);
     int64_t to_data_type = static_cast<int64_t>(
         OperandTypeToONNXTensorElementDataType(output_data_type));
 
