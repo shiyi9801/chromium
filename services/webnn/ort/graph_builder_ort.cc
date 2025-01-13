@@ -1312,8 +1312,10 @@ void GraphBuilderOrt::AddResample2dOperation(
       GetOperand(resample2d.output_operand_id).descriptor.shape();
   std::vector<const char*> input_names = {input_name.c_str()};
 
-  // ROI only takes effect when coordinate_transformation_mode is
-  // “tf_crop_and_resize”. Currently, WebNN only supports "half_pixel".
+  // ROI only takes effect when ONNX Resize op's attribute
+  // coordinate_transformation_mode is “tf_crop_and_resize” and the default
+  // value of coordinate_transformation_mode is "half_pixel". Currently, WebNN
+  // only supports "half_pixel".
   const std::string roi_name = "";
   input_names.push_back(roi_name.c_str());
 
