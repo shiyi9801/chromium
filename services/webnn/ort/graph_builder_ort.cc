@@ -1237,7 +1237,6 @@ void GraphBuilderOrt::AddPool2dOperation(const mojom::Pool2d& pool2d) {
       attr_ceil_mode.Release()};
 
   std::string op_type;
-  ScopedOrtOpAttrPtr attr_p;
   switch (pool2d.kind) {
     case mojom::Pool2d::Kind::kAveragePool2d: {
       op_type = kOpTypeAveragePool2d;
@@ -1249,9 +1248,9 @@ void GraphBuilderOrt::AddPool2dOperation(const mojom::Pool2d& pool2d) {
     }
     case mojom::Pool2d::Kind::kL2Pool2d: {
       op_type = kOpTypeLpPool2d;
-      attr_p =
-          model_builder_.CreateAttribute(/*name=*/"p", static_cast<int64_t>(2));
-      attributes.push_back(attr_p.Release());
+      attributes.push_back(
+          model_builder_.CreateAttribute(/*name=*/"p", static_cast<int64_t>(2))
+              .Release());
       break;
     }
   }
