@@ -23,6 +23,7 @@
 #include "services/webnn/public/mojom/webnn_context_provider.mojom.h"
 #include "services/webnn/public/mojom/webnn_error.mojom-forward.h"
 #include "services/webnn/public/mojom/webnn_graph.mojom.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 
 namespace webnn {
 
@@ -142,6 +143,20 @@ class GraphBuilderOrt {
     requires internal::IsSupportedTensorType<DataType>
   std::string CreateScalarInitializer(const DataType& value);
 
+  // Insert a cast operation before a operation to convert its input to the
+  // target `to_data_type`. The `input_name` specifies the input to be casted
+  // and will be updated to the output name of the cast operation.
+  void PrependCast(std::string& input_name,
+                   ONNXTensorElementDataType to_data_type);
+
+  // Insert a cast operation after a operation to convert its output to the
+  // target `to_data_type`. The `input_name` specifies the cast operation's
+  // input (the operation's output), and the `output_name` specifies the cast
+  // operation's output.
+  void AppendCast(const std::string& input_name,
+                  const std::string& output_name,
+                  ONNXTensorElementDataType to_data_type);
+
   void AddInput(uint64_t input_id);
   void AddOutput(uint64_t output_id);
 
@@ -154,7 +169,7 @@ class GraphBuilderOrt {
       const mojom::BatchNormalization& batch_normalization);
 
   template <typename T>
-  void AddBinaryOperation(const T& operation, std::string op_type);
+  void AddBinaryOperation(const T& operation, std::string_view op_type);
 
   template <typename T>
   void AddUnaryOperation(const T& operation, std::string_view op_type);
@@ -163,6 +178,10 @@ class GraphBuilderOrt {
       const mojom::ElementWiseBinary& element_wise_binary);
   void AddElementWiseUnaryOperation(
       const mojom::ElementWiseUnary& element_wise_unary);
+  void AddElementWiseLogicalOperation(
+      absl::variant<const mojom::ElementWiseBinary*,
+                    const mojom::ElementWiseUnary*> operation,
+      std::string_view op_type);
   void AddArgMinMaxOperation(const mojom::ArgMinMax& arg_min_max);
   void AddCastOperation(const mojom::ElementWiseUnary& cast);
   void AddClampOperation(const mojom::Clamp& clamp);
@@ -195,6 +214,9 @@ class GraphBuilderOrt {
 
   // Used for inserting new operands into graph.
   uint64_t next_operand_id_ = 0;
+
+  // Used for inserting new operation into graph.
+  uint64_t next_operation_count_ = 0;
 
   // A reference to the WebNN compute graph that `this` instance is converting
   // to ONNX model. The creator of `this` must ensure the GraphInfo reference

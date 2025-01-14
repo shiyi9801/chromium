@@ -115,10 +115,17 @@ base::unexpected<mojom::ErrorPtr> NewUnknownError(std::string message) {
 }
 
 // TODO(https://github.com/shiyi9801/chromium/issues/63): Make name generation
-// more robust. Inserted operands should also have a unique id, so here they're
-// named by their ids for now.
+// more robust. Inserted operands should also have a unique name, so here
+// they're named by their ids for now.
 std::string GetInsertedOperandName(uint64_t operand_id) {
   return base::NumberToString(operand_id);
+}
+
+// TODO(https://github.com/shiyi9801/chromium/issues/63): Make name generation
+// more robust. Inserted operations should also have a unique name, so here
+// they're named by their ids for now.
+std::string GetInsertedOperationName(uint64_t operation_id) {
+  return base::NumberToString(operation_id);
 }
 
 // TODO(https://github.com/shiyi9801/chromium/issues/63): Make name generation
@@ -244,6 +251,7 @@ GraphBuilderOrt::GraphBuilderOrt(
   for (const auto& [id, _] : graph_info.id_to_operand_map) {
     next_operand_id_ = std::max(next_operand_id_, id + 1);
   }
+  next_operation_count_ = graph_info.operations.size();
 }
 
 GraphBuilderOrt::~GraphBuilderOrt() = default;
@@ -318,6 +326,35 @@ template <typename DataType>
 std::string GraphBuilderOrt::CreateScalarInitializer(const DataType& value) {
   return CreateInitializer<DataType>(
       /*shape=*/{}, base::span_from_ref(value));
+}
+
+void GraphBuilderOrt::PrependCast(std::string& input_name,
+                                  ONNXTensorElementDataType to_data_type) {
+  const std::string node_name =
+      GetInsertedOperationName(next_operation_count_++);
+  const std::string output_name = GetInsertedOperandName(next_operand_id_++);
+  std::array<const char*, 1> input_names = {input_name.c_str()};
+  std::array<const char*, 1> output_names = {output_name.c_str()};
+  int64_t attr_to = static_cast<int64_t>(to_data_type);
+  std::array<OrtOpAttr*, 1> attributes = {
+      model_builder_.CreateAttribute(/*name=*/"to", attr_to).Release()};
+  model_builder_.AddNode(kOpTypeCast, node_name, input_names, output_names,
+                         attributes);
+  input_name = output_name;
+}
+
+void GraphBuilderOrt::AppendCast(const std::string& input_name,
+                                 const std::string& output_name,
+                                 ONNXTensorElementDataType to_data_type) {
+  const std::string node_name =
+      GetInsertedOperationName(next_operation_count_++);
+  std::array<const char*, 1> input_names = {input_name.c_str()};
+  std::array<const char*, 1> output_names = {output_name.c_str()};
+  int64_t attr_to = static_cast<int64_t>(to_data_type);
+  std::array<OrtOpAttr*, 1> attributes = {
+      model_builder_.CreateAttribute(/*name=*/"to", attr_to).Release()};
+  model_builder_.AddNode(kOpTypeCast, node_name, input_names, output_names,
+                         attributes);
 }
 
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
@@ -473,7 +510,7 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
 
 template <typename T>
 void GraphBuilderOrt::AddBinaryOperation(const T& operation,
-                                         std::string op_type) {
+                                         std::string_view op_type) {
   const std::string node_name = GetNodeName(operation.label);
   const std::string lhs_name = GetOperandName(operation.lhs_operand_id);
   const std::string rhs_name = GetOperandName(operation.rhs_operand_id);
@@ -483,6 +520,66 @@ void GraphBuilderOrt::AddBinaryOperation(const T& operation,
   std::array<const char*, 1> output_names = {output_name.c_str()};
 
   model_builder_.AddNode(op_type, node_name, input_names, output_names);
+}
+
+void GraphBuilderOrt::AddElementWiseLogicalOperation(
+    absl::variant<const mojom::ElementWiseBinary*,
+                  const mojom::ElementWiseUnary*> operation,
+    std::string_view op_type) {
+  const std::string node_name = absl::visit(
+      [](const auto* op) { return GetNodeName(op->label); }, operation);
+
+  std::vector<const char*> input_names;
+  std::string lhs_name;
+  std::string rhs_name;
+  if (absl::holds_alternative<const mojom::ElementWiseBinary*>(operation)) {
+    const mojom::ElementWiseBinary* element_wise_binary =
+        absl::get<const mojom::ElementWiseBinary*>(operation);
+    lhs_name = GetOperandName(element_wise_binary->lhs_operand_id);
+    rhs_name = GetOperandName(element_wise_binary->rhs_operand_id);
+
+    // Some ONNX logical operators only support bool input.
+    if (element_wise_binary->kind ==
+            mojom::ElementWiseBinary::Kind::kLogicalAnd ||
+        element_wise_binary->kind ==
+            mojom::ElementWiseBinary::Kind::kLogicalOr ||
+        element_wise_binary->kind ==
+            mojom::ElementWiseBinary::Kind::kLogicalXor) {
+      PrependCast(lhs_name, ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
+      PrependCast(rhs_name, ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
+    }
+
+    input_names = {lhs_name.c_str(), rhs_name.c_str()};
+  } else {
+    const mojom::ElementWiseUnary* element_wise_unary =
+        absl::get<const mojom::ElementWiseUnary*>(operation);
+    lhs_name = GetOperandName(element_wise_unary->input_operand_id);
+
+    // Some ONNX logical operators only support bool input.
+    if (element_wise_unary->kind ==
+        mojom::ElementWiseUnary::Kind::kLogicalNot) {
+      PrependCast(lhs_name, ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
+    }
+
+    input_names = {lhs_name.c_str()};
+  }
+
+  const std::string bool_output_name =
+      GetInsertedOperandName(next_operand_id_++);
+  std::array<const char*, 1> output_names = {bool_output_name.c_str()};
+
+  model_builder_.AddNode(op_type, node_name, input_names, output_names);
+
+  // ONNX logical operators only support bool output. To support output with the
+  // WebNN data type, it is necessary to insert a cast operator after a logical
+  // operator.
+  uint64_t output_operand_id = absl::visit(
+      [](const auto* op) { return op->output_operand_id; }, operation);
+  OperandDataType output_data_type =
+      GetOperand(output_operand_id).descriptor.data_type();
+  std::string output_name = GetOperandName(output_operand_id);
+  AppendCast(bool_output_name, output_name,
+             OperandTypeToONNXTensorElementDataType(output_data_type));
 }
 
 void GraphBuilderOrt::AddElementWiseBinaryOperation(
@@ -517,35 +614,37 @@ void GraphBuilderOrt::AddElementWiseBinaryOperation(
       break;
     }
     case mojom::ElementWiseBinary::Kind::kEqual: {
-      AddBinaryOperation(element_wise_binary, kOpTypeEqual);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeEqual);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kGreater: {
-      AddBinaryOperation(element_wise_binary, kOpTypeGreater);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeGreater);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kGreaterOrEqual: {
-      AddBinaryOperation(element_wise_binary, kOpTypeGreaterOrEqual);
+      AddElementWiseLogicalOperation(&element_wise_binary,
+                                     kOpTypeGreaterOrEqual);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kLesser: {
-      AddBinaryOperation(element_wise_binary, kOpTypeLesser);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeLesser);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kLesserOrEqual: {
-      AddBinaryOperation(element_wise_binary, kOpTypeLesserOrEqual);
+      AddElementWiseLogicalOperation(&element_wise_binary,
+                                     kOpTypeLesserOrEqual);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kLogicalAnd: {
-      AddBinaryOperation(element_wise_binary, kOpTypeLogicalAnd);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeLogicalAnd);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kLogicalOr: {
-      AddBinaryOperation(element_wise_binary, kOpTypeLogicalOr);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeLogicalOr);
       break;
     }
     case mojom::ElementWiseBinary::Kind::kLogicalXor: {
-      AddBinaryOperation(element_wise_binary, kOpTypeLogicalXor);
+      AddElementWiseLogicalOperation(&element_wise_binary, kOpTypeLogicalXor);
       break;
     }
   }
@@ -598,7 +697,7 @@ void GraphBuilderOrt::AddElementWiseUnaryOperation(
       AddUnaryOperation(element_wise_unary, kOpTypeTan);
       break;
     case mojom::ElementWiseUnary::Kind::kLogicalNot:
-      AddUnaryOperation(element_wise_unary, kOpTypeLogicalNot);
+      AddElementWiseLogicalOperation(&element_wise_unary, kOpTypeLogicalNot);
       break;
     case mojom::ElementWiseUnary::Kind::kIdentity:
       AddUnaryOperation(element_wise_unary, kOpTypeIdentity);
@@ -664,19 +763,8 @@ void GraphBuilderOrt::AddArgMinMaxOperation(
   }
 
   if (need_cast) {
-    std::array<const char*, 1> cast_input_names = {int64_output_name.c_str()};
-    std::array<const char*, 1> cast_output_names = {output_name.c_str()};
-
-    CHECK_EQ(output_data_type, OperandDataType::kInt32);
-    int64_t to_data_type = static_cast<int64_t>(
-        OperandTypeToONNXTensorElementDataType(output_data_type));
-
-    const std::string cast_node_name = node_name + "_cast";
-
-    std::array<OrtOpAttr*, 1> cast_attributes = {
-        model_builder_.CreateAttribute(/*name=*/"to", to_data_type).Release()};
-    model_builder_.AddNode(kOpTypeCast, cast_node_name, cast_input_names,
-                           cast_output_names, cast_attributes);
+    AppendCast(int64_output_name, output_name,
+               OperandTypeToONNXTensorElementDataType(output_data_type));
   }
 }
 
@@ -1117,9 +1205,6 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   return base::ok();
 }
 
-void GraphBuilderOrt::AddLogicalNotOperation(
-    const mojom::ElementWiseUnary& logical_not) {}
-
 void GraphBuilderOrt::AddMatMulOperation(const mojom::Matmul& matmul) {
   const std::string node_name = GetNodeName(matmul.label);
   const std::string input_a_name = GetOperandName(matmul.a_operand_id);
@@ -1528,31 +1613,15 @@ void GraphBuilderOrt::AddWhereOperation(const mojom::Where& where) {
   const std::string node_name = GetNodeName(where.label);
   // ONNX only supports bool data type for the condition input of Where, insert
   // a Cast node to convert the condition input to bool.
-  std::string cast_node_output_name =
-      "inserted_cast_node_output_" + GetInsertedOperandName(next_operand_id_);
-  {
-    std::string cast_node_name = "inserted_cast_node_before_" + node_name;
-    const std::string condition_name =
-        GetOperandName(where.condition_operand_id);
-    std::array<const char*, 1> cast_input_names = {condition_name.c_str()};
-    std::array<const char*, 1> cast_output_names = {
-        cast_node_output_name.c_str()};
-
-    int64_t to_data_type =
-        static_cast<int64_t>(ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
-    std::array<OrtOpAttr*, 1> cast_attributes = {
-        model_builder_.CreateAttribute(/*name=*/"to", to_data_type).Release()};
-    model_builder_.AddNode(kOpTypeCast, cast_node_name, cast_input_names,
-                           cast_output_names, cast_attributes);
-    next_operand_id_++;
-  }
+  std::string condition_name = GetOperandName(where.condition_operand_id);
+  PrependCast(condition_name, ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
 
   const std::string true_value_name =
       GetOperandName(where.true_value_operand_id);
   const std::string false_value_name =
       GetOperandName(where.false_value_operand_id);
   const std::string output_name = GetOperandName(where.output_operand_id);
-  std::array<const char*, 3> input_names = {cast_node_output_name.c_str(),
+  std::array<const char*, 3> input_names = {condition_name.c_str(),
                                             true_value_name.c_str(),
                                             false_value_name.c_str()};
   std::array<const char*, 1> output_names = {output_name.c_str()};
