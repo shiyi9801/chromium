@@ -15,7 +15,7 @@ namespace webnn::ort {
 
 #define CHECK_STATUS(expr)                                           \
   do {                                                               \
-    const OrtApi* ort_api_local = GetOrtApi();                       \
+    const OrtApi* ort_api_local = ort::GetOrtApi();                  \
     OrtStatus* onnx_status = (expr);                                 \
     if (onnx_status != NULL) {                                       \
       std::string msg = ort_api_local->GetErrorMessage(onnx_status); \
@@ -23,6 +23,31 @@ namespace webnn::ort {
       NOTREACHED() << "[WebNN] Ort Status: " << msg;                 \
     }                                                                \
   } while (0);
+
+#define GET_STATUS_PTR(ort_func)                                   \
+  [&]() -> ort::ScopedOrtStatusPtr {                               \
+    OrtStatus* status = ort_func;                                  \
+    ort::ScopedOrtStatusPtr status_ptr;                            \
+    *status_ptr.GetAddressOf() = status;                           \
+    if (status_ptr) {                                              \
+      LOG(ERROR) << "[WebNN] Failed to call " << #ort_func << ": " \
+                 << ort::GetOrtApi()->GetErrorMessage(status_ptr); \
+    }                                                              \
+    return status_ptr;                                             \
+  }()
+
+#define RETURN_STATUS_PTR_IF_FAILED(ort_func)                      \
+  do {                                                             \
+    ort::ScopedOrtStatusPtr status_ptr = GET_STATUS_PTR(ort_func); \
+    if (status_ptr) {                                              \
+      return status_ptr;                                           \
+    }                                                              \
+  } while (0)
+
+#define FAILURE_CAN_BE_IGNORED(ort_func)                           \
+  do {                                                             \
+    ort::ScopedOrtStatusPtr status_ptr = GET_STATUS_PTR(ort_func); \
+  } while (0)
 
 }  // namespace webnn::ort
 
