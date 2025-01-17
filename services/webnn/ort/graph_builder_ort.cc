@@ -99,6 +99,7 @@ constexpr char kOpTypeReshape[] = "Reshape";
 constexpr char kOpTypeSigmoid[] = "Sigmoid";
 constexpr char kOpTypeSlice[] = "Slice";
 constexpr char kOpTypeSoftmax[] = "Softmax";
+constexpr char kOpTypeSplit[] = "Split";
 constexpr char kOpTypeTranspose[] = "Transpose";
 constexpr char kOpTypeTriangular[] = "Trilu";
 constexpr char kOpTypeWhere[] = "Where";
@@ -1532,6 +1533,40 @@ void GraphBuilderOrt::AddTransposeOperation(const mojom::Transpose& transpose) {
                          attributes);
 }
 
+void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
+  const std::string node_name = GenerateNextOperationName(split.label);
+  const std::string input_name = GetOperandNameById(split.input_operand_id);
+  std::vector<const char*> input_names = {input_name.c_str()};
+
+  const auto output_nums = split.output_operand_ids.size();
+  base::FixedArray<int64_t> split_sizes(output_nums);
+  for (size_t i = 0; i < output_nums; i++) {
+    const std::vector<uint32_t>& output_shape =
+        GetOperand(split.output_operand_ids[i]).descriptor.shape();
+    CHECK_LT(split.axis, output_shape.size());
+    split_sizes[i] = base::checked_cast<int64_t>(output_shape[split.axis]);
+  }
+  const std::string split_name = CreateInitializer<int64_t>(
+      {base::checked_cast<uint32_t>(output_nums)}, split_sizes);
+  input_names.push_back(split_name.c_str());
+
+  base::FixedArray<std::string> output_names_string(output_nums);
+  base::FixedArray<const char*> output_names(output_nums);
+  for (size_t i = 0; i < output_nums; i++) {
+    output_names_string[i] = GetOperandNameById(split.output_operand_ids[i]);
+    output_names[i] = output_names_string[i].c_str();
+  }
+
+  std::array<OrtOpAttr*, 1> attributes = {
+      model_builder_
+          .CreateAttribute(/*name=*/"axis",
+                           base::checked_cast<int64_t>(split.axis))
+          .Release()};
+
+  model_builder_.AddNode(kOpTypeSplit, node_name, input_names, output_names,
+                         attributes);
+}
+
 void GraphBuilderOrt::AddTriangularOperation(
     const mojom::Triangular& triangular) {
   const std::string node_name = GenerateNextOperationName(triangular.label);
@@ -1687,6 +1722,10 @@ GraphBuilderOrt::BuildModel() {
         AddSoftmaxOperation(*operation->get_softmax());
         break;
       }
+      case mojom::Operation::Tag::kSplit: {
+        AddSplitOperation(*operation->get_split());
+        break;
+      }
       case mojom::Operation::Tag::kTranspose: {
         AddTransposeOperation(*operation->get_transpose());
         break;
@@ -1720,7 +1759,6 @@ GraphBuilderOrt::BuildModel() {
       case mojom::Operation::Tag::kScatterNd:
       case mojom::Operation::Tag::kSoftplus:
       case mojom::Operation::Tag::kSoftsign:
-      case mojom::Operation::Tag::kSplit:
       case mojom::Operation::Tag::kTanh:
       case mojom::Operation::Tag::kTile:
         return NewNotSupportedError("op is not supported.");
