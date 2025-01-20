@@ -70,6 +70,7 @@ constexpr char kOpTypeConcat[] = "Concat";
 constexpr char kOpTypeConv2d[] = "Conv";
 constexpr char kOpTypeExpand[] = "Expand";
 constexpr char kOpTypeGather[] = "Gather";
+constexpr char kOpTypeGelu[] = "Gelu";
 constexpr char kOpTypeGemm[] = "Gemm";
 constexpr char kOpTypeInstanceNormalization[] = "InstanceNormalization";
 constexpr char kOpTypeLayerNormalization[] = "LayerNormalization";
@@ -1633,6 +1634,10 @@ GraphBuilderOrt::BuildModel() {
         AddGatherOperation(*operation->get_gather());
         break;
       }
+      case mojom::Operation::Tag::kGelu: {
+        AddUnaryOperation(*operation->get_gelu(), kOpTypeGelu);
+        break;
+      }
       case mojom::Operation::Tag::kGemm: {
         AddGemmOperation(*operation->get_gemm());
         break;
@@ -1704,7 +1709,6 @@ GraphBuilderOrt::BuildModel() {
       case mojom::Operation::Tag::kElu:
       case mojom::Operation::Tag::kGatherElements:
       case mojom::Operation::Tag::kGatherNd:
-      case mojom::Operation::Tag::kGelu:
       case mojom::Operation::Tag::kGru:
       case mojom::Operation::Tag::kGruCell:
       case mojom::Operation::Tag::kHardSigmoid:
