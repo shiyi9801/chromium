@@ -42,6 +42,10 @@ concept IsSupportedTensorType = IsAnyOf<T, float, uint16_t, int64_t>;
 
 }  // namespace internal
 
+// The returned operand name has a format of "label_id". Adding operand id at
+// the end ensures that the name is unique.
+std::string GetOperandName(std::string_view label, uint64_t id);
+
 class GraphBuilderOrt {
   STACK_ALLOCATED();
 
