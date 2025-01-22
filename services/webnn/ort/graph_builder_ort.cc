@@ -221,9 +221,9 @@ const mojom::Operand& GraphBuilderOrt::GetOperand(uint64_t operand_id) {
 
 std::string GraphBuilderOrt::GetOperandNameById(uint64_t operand_id) {
   const mojom::Operand& operand = GetOperand(operand_id);
-  std::string operand_name =
+  std::string operand_label =
       operand.name.has_value() ? operand.name.value() : "";
-  return GetOperandName(operand_name, operand_id);
+  return GetOperandName(operand_label, operand_id);
 }
 
 std::string GraphBuilderOrt::GenerateNextOperandName() {
