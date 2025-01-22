@@ -1536,9 +1536,12 @@ void GraphBuilderOrt::AddTransposeOperation(const mojom::Transpose& transpose) {
 void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
   const std::string node_name = GenerateNextOperationName(split.label);
   const std::string input_name = GetOperandNameById(split.input_operand_id);
-  std::vector<const char*> input_names = {input_name.c_str()};
 
   const auto output_nums = split.output_operand_ids.size();
+  // 'split' is a optional input which specifies the length of each output. Sum
+  // of the values must be equal to the dim value at 'axis' specified. Notes
+  // that either input 'split' or the attribute 'num_outputs' should be
+  // specified, but not both.
   base::FixedArray<int64_t> split_sizes(output_nums);
   for (size_t i = 0; i < output_nums; i++) {
     const std::vector<uint32_t>& output_shape =
@@ -1547,8 +1550,9 @@ void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
     split_sizes[i] = base::checked_cast<int64_t>(output_shape[split.axis]);
   }
   const std::string split_name = CreateInitializer<int64_t>(
-      {base::checked_cast<uint32_t>(output_nums)}, split_sizes);
-  input_names.push_back(split_name.c_str());
+      {base::checked_cast<uint32_t>(split_sizes.size())}, split_sizes);
+  base::FixedArray<const char*> input_names = {input_name.c_str(),
+                                               split_name.c_str()};
 
   base::FixedArray<std::string> output_names_string(output_nums);
   base::FixedArray<const char*> output_names(output_nums);
