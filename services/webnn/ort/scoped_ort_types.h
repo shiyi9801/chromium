@@ -16,6 +16,7 @@ namespace webnn::ort {
   class ScopedOrt##ort_type##Ptr {                                         \
    public:                                                                 \
     ScopedOrt##ort_type##Ptr();                                            \
+    ScopedOrt##ort_type##Ptr(Ort##ort_type* ort_type_ptr);                 \
     ~ScopedOrt##ort_type##Ptr();                                           \
     ScopedOrt##ort_type##Ptr(const ScopedOrt##ort_type##Ptr&) = delete;    \
     ScopedOrt##ort_type##Ptr& operator=(const ScopedOrt##ort_type##Ptr&) = \

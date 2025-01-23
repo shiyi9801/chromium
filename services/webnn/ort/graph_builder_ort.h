@@ -173,7 +173,8 @@ class GraphBuilderOrt {
   void AddConcatOperation(const mojom::Concat& concat);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddConv2dOperation(
       const mojom::Conv2d& conv2d);
-  void AddExpandOperation(const mojom::Expand& expand);
+  [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddExpandOperation(
+      const mojom::Expand& expand);
   void AddGatherOperation(const mojom::Gather& gather);
   void AddGemmOperation(const mojom::Gemm& gemm);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr>
@@ -196,7 +197,8 @@ class GraphBuilderOrt {
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddSliceOperation(
       const mojom::Slice& slice);
   void AddSoftmaxOperation(const mojom::Softmax& softmax);
-  void AddSplitOperation(const mojom::Split& split);
+  [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddSplitOperation(
+      const mojom::Split& split);
   void AddTransposeOperation(const mojom::Transpose& transpose);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddTriangularOperation(
       const mojom::Triangular& triangular);

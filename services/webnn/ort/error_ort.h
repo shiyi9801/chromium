@@ -24,29 +24,22 @@ namespace webnn::ort {
     }                                                                \
   } while (0);
 
-#define GET_STATUS_PTR(ort_func)                                   \
+#define ORT_CALL_FAILED(ort_func)                                  \
   [&]() -> ort::ScopedOrtStatusPtr {                               \
-    OrtStatus* status = ort_func;                                  \
-    ort::ScopedOrtStatusPtr status_ptr;                            \
-    *status_ptr.GetAddressOf() = status;                           \
-    if (status_ptr) {                                              \
+    ort::ScopedOrtStatusPtr status(ort_func);                      \
+    if (status) {                                                  \
       LOG(ERROR) << "[WebNN] Failed to call " << #ort_func << ": " \
-                 << ort::GetOrtApi()->GetErrorMessage(status_ptr); \
+                 << ort::GetOrtApi()->GetErrorMessage(status);     \
     }                                                              \
-    return status_ptr;                                             \
+    return status;                                                 \
   }()
 
-#define RETURN_STATUS_PTR_IF_FAILED(ort_func)                      \
-  do {                                                             \
-    ort::ScopedOrtStatusPtr status_ptr = GET_STATUS_PTR(ort_func); \
-    if (status_ptr) {                                              \
-      return status_ptr;                                           \
-    }                                                              \
-  } while (0)
-
-#define FAILURE_CAN_BE_IGNORED(ort_func)                           \
-  do {                                                             \
-    ort::ScopedOrtStatusPtr status_ptr = GET_STATUS_PTR(ort_func); \
+#define RETURN_STATUS_IF_FAILED(ort_func)                       \
+  do {                                                          \
+    ort::ScopedOrtStatusPtr status = ORT_CALL_FAILED(ort_func); \
+    if (status) {                                               \
+      return status;                                            \
+    }                                                           \
   } while (0)
 
 }  // namespace webnn::ort

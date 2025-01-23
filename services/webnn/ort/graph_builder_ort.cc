@@ -1641,7 +1641,8 @@ void GraphBuilderOrt::AddTransposeOperation(const mojom::Transpose& transpose) {
                          attributes);
 }
 
-void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
+[[nodiscard]] base::expected<void, mojom::ErrorPtr>
+GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
   const std::string node_name = GenerateNextOperationName(split.label);
   const std::string input_name = GetOperandNameById(split.input_operand_id);
 
@@ -1657,8 +1658,10 @@ void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
     CHECK_LT(split.axis, output_shape.size());
     split_sizes[i] = base::checked_cast<int64_t>(output_shape[split.axis]);
   }
-  const std::string split_name = CreateInitializer<int64_t>(
-      {base::checked_cast<uint32_t>(split_sizes.size())}, split_sizes);
+  ASSIGN_OR_RETURN(
+      const std::string split_name,
+      CreateInitializer<int64_t>(
+          {base::checked_cast<uint32_t>(split_sizes.size())}, split_sizes));
   base::FixedArray<const char*> input_names = {input_name.c_str(),
                                                split_name.c_str()};
 
@@ -1677,6 +1680,8 @@ void GraphBuilderOrt::AddSplitOperation(const mojom::Split& split) {
 
   model_builder_.AddNode(kOpTypeSplit, node_name, input_names, output_names,
                          attributes);
+
+  return base::ok();
 }
 
 [[nodiscard]] base::expected<void, mojom::ErrorPtr>
@@ -1842,7 +1847,7 @@ GraphBuilderOrt::BuildModel() {
         break;
       }
       case mojom::Operation::Tag::kSplit: {
-        AddSplitOperation(*operation->get_split());
+        RETURN_IF_ERROR(AddSplitOperation(*operation->get_split()));
         break;
       }
       case mojom::Operation::Tag::kTranspose: {

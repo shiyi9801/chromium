@@ -254,7 +254,7 @@ void WebNNContextProviderImpl::CreateWebNNContext(
     // same instance.  It is released upon the last reference is removed via
     // `ReleaseEnv()`.
     ort::ScopedOrtEnvPtr env;
-    if (GET_STATUS_PTR(ort::GetOrtApi()->CreateEnv(
+    if (ORT_CALL_FAILED(ort::GetOrtApi()->CreateEnv(
             ORT_LOGGING_LEVEL_WARNING, "WebNN", env.GetAddressOf()))) {
       std::move(callback).Run(ToError<mojom::CreateContextResult>(
           mojom::Error::Code::kNotSupportedError,

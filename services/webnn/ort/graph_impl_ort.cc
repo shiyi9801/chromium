@@ -218,7 +218,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
 
   const OrtApi* ort_api = GetOrtApi();
   ScopedOrtSessionOptionsPtr session_options;
-  if (GET_STATUS_PTR(
+  if (ORT_CALL_FAILED(
           ort_api->CreateSessionOptions(session_options.GetAddressOf()))) {
     return base::unexpected(mojom::Error::New(mojom::Error::Code::kUnknownError,
                                               "Failed to create graph."));
@@ -238,7 +238,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
             switches::kWebNNOrtDumpModel);
     base::FilePath dump_path = dump_directory.AppendASCII(
         base::StringPrintf("model%d.onnx", dump_count++));
-    FAILURE_CAN_BE_IGNORED(ort_api->SetOptimizedModelFilePath(
+    ORT_CALL_FAILED(ort_api->SetOptimizedModelFilePath(
         session_options, dump_path.value().c_str()));
 
     // TODO(https://github.com/shiyi9801/chromium/issues/54): Support saving
@@ -268,7 +268,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     // It is recommended to disable the graph optimization for OpenVINO
     // backend.
     // https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#other-configuration-settings
-    FAILURE_CAN_BE_IGNORED(ort_api->SetSessionGraphOptimizationLevel(
+    ORT_CALL_FAILED(ort_api->SetSessionGraphOptimizationLevel(
         session_options, GraphOptimizationLevel::ORT_DISABLE_ALL));
 
     OrtOpenVINOProviderOptions openvino_options;
@@ -276,7 +276,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
 
     // TODO(https://github.com/shiyi9801/chromium/issues/74): Fail early when
     // creating the context if the OpenVINO EP is not supported.
-    if (GET_STATUS_PTR(ort_api->SessionOptionsAppendExecutionProvider_OpenVINO(
+    if (ORT_CALL_FAILED(ort_api->SessionOptionsAppendExecutionProvider_OpenVINO(
             session_options, &openvino_options))) {
       return base::unexpected(
           mojom::Error::New(mojom::Error::Code::kUnknownError,
@@ -288,7 +288,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     // TODO(https://github.com/shiyi9801/chromium/issues/58): Investigate how
     // to apply layout optimizations (ORT_ENABLE_ALL).
     // https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html#layout-optimizations
-    FAILURE_CAN_BE_IGNORED(ort_api->SetSessionGraphOptimizationLevel(
+    ORT_CALL_FAILED(ort_api->SetSessionGraphOptimizationLevel(
         session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
   }
 
@@ -297,14 +297,14 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
   // will be owned by `GraphImplOrt::Session` that ensures releasing `OrtEnv`
   // reference after releasing `OrtSession`.
   ScopedOrtEnvPtr env;
-  if (GET_STATUS_PTR(ort_api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "WebNN",
-                                        env.GetAddressOf()))) {
+  if (ORT_CALL_FAILED(ort_api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "WebNN",
+                                         env.GetAddressOf()))) {
     return base::unexpected(mojom::Error::New(mojom::Error::Code::kUnknownError,
                                               "Failed to create graph."));
   }
 
   ScopedOrtSessionPtr session;
-  if (GET_STATUS_PTR(GetOrtModelBuilderApi()->CreateSessionFromModel(
+  if (ORT_CALL_FAILED(GetOrtModelBuilderApi()->CreateSessionFromModel(
           env, model_info->model, session_options, session.GetAddressOf()))) {
     return base::unexpected(mojom::Error::New(mojom::Error::Code::kUnknownError,
                                               "Failed to build graph."));

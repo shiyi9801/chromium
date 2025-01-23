@@ -90,16 +90,16 @@ void OrtModelBuilder::AddOutput(std::string_view name,
 
   OrtAllocator* allocator = nullptr;
   // Always use CPU allocator for raw data.
-  RETURN_STATUS_PTR_IF_FAILED(
+  RETURN_STATUS_IF_FAILED(
       GetOrtApi()->GetAllocatorWithDefaultOptions(&allocator));
   CHECK(allocator);
 
-  RETURN_STATUS_PTR_IF_FAILED(GetOrtApi()->CreateTensorAsOrtValue(
+  RETURN_STATUS_IF_FAILED(GetOrtApi()->CreateTensorAsOrtValue(
       allocator, shape.data(), shape.size(), data_type,
       initializer.GetAddressOf()));
 
   void* ort_tensor_raw_data = nullptr;
-  RETURN_STATUS_PTR_IF_FAILED(
+  RETURN_STATUS_IF_FAILED(
       GetOrtApi()->GetTensorMutableData(initializer, &ort_tensor_raw_data));
   CHECK(ort_tensor_raw_data);
   UNSAFE_BUFFERS(
@@ -107,7 +107,7 @@ void OrtModelBuilder::AddOutput(std::string_view name,
       .copy_from(data);
 
   // Graph will own the initializer.
-  RETURN_STATUS_PTR_IF_FAILED(GetOrtModelBuilderApi()->AddInitializerToGraph(
+  RETURN_STATUS_IF_FAILED(GetOrtModelBuilderApi()->AddInitializerToGraph(
       graph_, name.data(), initializer.Release(), /*data_is_external=*/false));
 
   return ScopedOrtStatusPtr();
@@ -125,13 +125,13 @@ void OrtModelBuilder::AddOutput(std::string_view name,
 
   // TODO(https://github.com/shiyi9801/chromium/issues/45): Use
   // `CreateTensorWithDataAndDeleterAsOrtValue()`.
-  RETURN_STATUS_PTR_IF_FAILED(GetOrtApi()->CreateTensorWithDataAsOrtValue(
+  RETURN_STATUS_IF_FAILED(GetOrtApi()->CreateTensorWithDataAsOrtValue(
       memory_info_, model_info_->external_data.back().data(),
       model_info_->external_data.back().size(), shape.data(), shape.size(),
       data_type, initializer.GetAddressOf()));
 
   // Graph will own the initializer.
-  RETURN_STATUS_PTR_IF_FAILED(GetOrtModelBuilderApi()->AddInitializerToGraph(
+  RETURN_STATUS_IF_FAILED(GetOrtModelBuilderApi()->AddInitializerToGraph(
       graph_, name.data(), initializer.Release(), /*data_is_external=*/true));
 
   return ScopedOrtStatusPtr();
