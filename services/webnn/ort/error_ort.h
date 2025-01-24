@@ -24,22 +24,33 @@ namespace webnn::ort {
     }                                                                \
   } while (0);
 
-#define ORT_CALL_FAILED(ort_func)                                  \
-  [&]() -> ort::ScopedOrtStatusPtr {                               \
-    ort::ScopedOrtStatusPtr status(ort_func);                      \
+#define LOG_IF_FAILED(ort_call)                                    \
+  do {                                                             \
+    ort::ScopedOrtStatusPtr status(ort_call);                      \
     if (status) {                                                  \
-      LOG(ERROR) << "[WebNN] Failed to call " << #ort_func << ": " \
+      LOG(ERROR) << "[WebNN] Failed to call " << #ort_call << ": " \
+                 << ort::GetOrtApi()->GetErrorMessage(status);     \
+    }                                                              \
+  } while (0)
+
+#define ORT_CALL_FAILED(ort_call)                                  \
+  ([&]() -> bool {                                                 \
+    ort::ScopedOrtStatusPtr status(ort_call);                      \
+    if (status) {                                                  \
+      LOG(ERROR) << "[WebNN] Failed to call " << #ort_call << ": " \
                  << ort::GetOrtApi()->GetErrorMessage(status);     \
     }                                                              \
     return status;                                                 \
-  }()
+  })()
 
-#define RETURN_STATUS_IF_FAILED(ort_func)                       \
-  do {                                                          \
-    ort::ScopedOrtStatusPtr status = ORT_CALL_FAILED(ort_func); \
-    if (status) {                                               \
-      return status;                                            \
-    }                                                           \
+#define RETURN_STATUS_IF_FAILED(ort_call)                          \
+  do {                                                             \
+    ort::ScopedOrtStatusPtr status(ort_call);                      \
+    if (status) {                                                  \
+      LOG(ERROR) << "[WebNN] Failed to call " << #ort_call << ": " \
+                 << ort::GetOrtApi()->GetErrorMessage(status);     \
+      return status;                                               \
+    }                                                              \
   } while (0)
 
 }  // namespace webnn::ort

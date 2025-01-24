@@ -238,7 +238,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
             switches::kWebNNOrtDumpModel);
     base::FilePath dump_path = dump_directory.AppendASCII(
         base::StringPrintf("model%d.onnx", dump_count++));
-    ORT_CALL_FAILED(ort_api->SetOptimizedModelFilePath(
+    LOG_IF_FAILED(ort_api->SetOptimizedModelFilePath(
         session_options, dump_path.value().c_str()));
 
     // TODO(https://github.com/shiyi9801/chromium/issues/54): Support saving
@@ -268,7 +268,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     // It is recommended to disable the graph optimization for OpenVINO
     // backend.
     // https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#other-configuration-settings
-    ORT_CALL_FAILED(ort_api->SetSessionGraphOptimizationLevel(
+    LOG_IF_FAILED(ort_api->SetSessionGraphOptimizationLevel(
         session_options, GraphOptimizationLevel::ORT_DISABLE_ALL));
 
     OrtOpenVINOProviderOptions openvino_options;
@@ -288,7 +288,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     // TODO(https://github.com/shiyi9801/chromium/issues/58): Investigate how
     // to apply layout optimizations (ORT_ENABLE_ALL).
     // https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html#layout-optimizations
-    ORT_CALL_FAILED(ort_api->SetSessionGraphOptimizationLevel(
+    LOG_IF_FAILED(ort_api->SetSessionGraphOptimizationLevel(
         session_options, GraphOptimizationLevel::ORT_ENABLE_BASIC));
   }
 
