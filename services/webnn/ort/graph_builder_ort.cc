@@ -69,6 +69,7 @@ constexpr char kOpTypeClamp[] = "Clip";
 constexpr char kOpTypeConcat[] = "Concat";
 constexpr char kOpTypeConv2d[] = "Conv";
 constexpr char kOpTypeConvTranspose2d[] = "ConvTranspose";
+constexpr char kOpTypeDequantizeLinear[] = "DequantizeLinear";
 constexpr char kOpTypeExpand[] = "Expand";
 constexpr char kOpTypeGather[] = "Gather";
 constexpr char kOpTypeGelu[] = "Gelu";
@@ -298,6 +299,39 @@ void GraphBuilderOrt::AppendCast(std::string_view input_name,
                                  ONNXTensorElementDataType to_data_type) {
   const std::string node_name = GenerateNextOperationName("inserted_cast");
   ADD_CAST_NODE(node_name, input_name, output_name, to_data_type);
+}
+
+std::string GraphBuilderOrt::PrependTranspose(
+    std::string_view input_name,
+    base::span<const uint32_t> permutation) {
+  const std::string node_name = GenerateNextOperationName("inserted_transpose");
+  const std::string output_name = GenerateNextOperandName();
+
+  std::array<const char*, 1> input_names = {input_name.data()};
+  std::array<const char*, 1> output_names = {output_name.data()};
+
+  std::vector<int64_t> perm(permutation.begin(), permutation.end());
+  std::array<OrtOpAttr*, 1> attributes = {
+      model_builder_.CreateAttribute(/*name=*/"perm", perm).Release()};
+
+  model_builder_.AddNode(kOpTypeTranspose, node_name, input_names, output_names,
+                         attributes);
+  return output_name;
+}
+
+void GraphBuilderOrt::AppendTranspose(std::string_view input_name,
+                                      std::string_view output_name,
+                                      base::span<const uint32_t> permutation) {
+  const std::string node_name = GenerateNextOperationName("inserted_transpose");
+  std::array<const char*, 1> input_names = {input_name.data()};
+  std::array<const char*, 1> output_names = {output_name.data()};
+
+  std::vector<int64_t> perm(permutation.begin(), permutation.end());
+  std::array<OrtOpAttr*, 1> attributes = {
+      model_builder_.CreateAttribute(/*name=*/"perm", perm).Release()};
+
+  model_builder_.AddNode(kOpTypeTranspose, node_name, input_names, output_names,
+                         attributes);
 }
 
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
@@ -949,6 +983,123 @@ GraphBuilderOrt::AddExpandOperation(const mojom::Expand& expand) {
 
   model_builder_.AddNode(kOpTypeExpand, node_name, input_names, output_names);
 
+  return base::ok();
+}
+
+[[nodiscard]] base::expected<void, mojom::ErrorPtr>
+GraphBuilderOrt::AddDequantizeLinearOperation(
+    const mojom::DequantizeLinear& dequantize_linear) {
+  const std::string node_name =
+      GenerateNextOperationName(dequantize_linear.label);
+  std::string input_name =
+      GetOperandNameById(dequantize_linear.input_operand_id);
+  std::string scale_name =
+      GetOperandNameById(dequantize_linear.scale_operand_id);
+  std::string zero_point_name =
+      GetOperandNameById(dequantize_linear.zero_point_operand_id);
+  std::string output_name =
+      GetOperandNameById(dequantize_linear.output_operand_id);
+
+  const OperandDescriptor& input_descriptor =
+      GetOperand(dequantize_linear.input_operand_id).descriptor;
+  std::vector<uint32_t> input_shape = input_descriptor.shape();
+
+  const OperandDescriptor& scale_descriptor =
+      GetOperand(dequantize_linear.scale_operand_id).descriptor;
+  std::vector<uint32_t> scale_shape = scale_descriptor.shape();
+
+  int64_t axis = 1;
+  int64_t block_size = 0;
+  bool need_transpose = false;
+
+  // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L220
+  if (scale_shape.size() > 2) {
+    return NewNotSupportedError(
+        "OpenVINO dequantizeLinear cannot operate with more than 2D scales");
+  }
+
+  if (scale_shape.empty()) {
+    // For per-tensor/layer dequantization the scale is a scalar.
+    axis = 0;
+  } else if (scale_shape.size() == 1) {
+    bool is_valid = false;
+    // for per per-axis dequantization it is a 1-D Tensor
+    for (size_t i = 0; i < input_shape.size(); i++) {
+      if (scale_shape[0] == input_shape[i]) {
+        axis = i;
+        is_valid = true;
+      }
+    }
+    if (!is_valid) {
+      return NewNotSupportedError(
+          "For 1D scale, the size of scale must be the same as the size of the "
+          "input dim specified by the axis.");
+    }
+  } else {
+    CHECK_EQ(scale_shape.size(), 2u);
+    // For blocked dequantization it has the same shape as the input, except for
+    // one dimension in which blocking is performed.
+    if (scale_shape.size() == input_shape.size()) {
+      uint32_t diff_count = 0;
+      for (size_t i = 0; i < input_shape.size(); i++) {
+        if (scale_shape[i] != input_shape[i]) {
+          // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L230
+          if (input_shape[i] % scale_shape[i] != 0) {
+            return NewNotSupportedError(
+                "For blocked dequantization, OpenVINO DequantizeLinear doesn't "
+                "support case when input cannot be divided by scale.");
+          }
+          block_size = input_shape[i] / scale_shape[i];
+          axis = i;
+          diff_count++;
+          if (diff_count > 1) {
+            return NewNotSupportedError(
+                "For blocked dequantization it has the same shape as the "
+                "input, except for one dimension in which blocking is "
+                "performed");
+          }
+        }
+      }
+      // The shape of scale is the same as the shape of input.
+      if (diff_count == 0) {
+        axis = 0;
+        block_size = 1;
+      }
+
+      // Currently, OpenVINO only supports axis == 0 when scale.size == 2.
+      // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L228.
+      if (axis != 0) {
+        input_name = PrependTranspose(input_name, {1, 0});
+        scale_name = PrependTranspose(scale_name, {1, 0});
+        zero_point_name = PrependTranspose(zero_point_name, {1, 0});
+        axis = 0;
+        need_transpose = true;
+      }
+    }
+  }
+
+  const std::string transposed_output_name =
+      need_transpose ? GenerateNextOperandName() : output_name;
+
+  base::FixedArray<const char*> input_names = {
+      input_name.c_str(), scale_name.c_str(), zero_point_name.c_str()};
+  base::FixedArray<const char*> output_names = {transposed_output_name.c_str()};
+
+  std::array<OrtOpAttr*, 2> attributes = {
+      model_builder_
+          .CreateAttribute(/*name=*/"axis", base::checked_cast<int64_t>(axis))
+          .Release(),
+      model_builder_
+          .CreateAttribute(/*name=*/"block_size",
+                           base::checked_cast<int64_t>(block_size))
+          .Release()};
+
+  model_builder_.AddNode(kOpTypeDequantizeLinear, node_name, input_names,
+                         output_names, attributes);
+
+  if (need_transpose) {
+    AppendTranspose(transposed_output_name, output_name, {1, 0});
+  }
   return base::ok();
 }
 
@@ -1780,6 +1931,11 @@ GraphBuilderOrt::BuildModel() {
         RETURN_IF_ERROR(AddConv2dOperation(*operation->get_conv2d()));
         break;
       }
+      case mojom::Operation::Tag::kDequantizeLinear: {
+        RETURN_IF_ERROR(
+            AddDequantizeLinearOperation(*operation->get_dequantize_linear()));
+        break;
+      }
       case mojom::Operation::Tag::kExpand: {
         RETURN_IF_ERROR(AddExpandOperation(*operation->get_expand()));
         break;
@@ -1863,7 +2019,6 @@ GraphBuilderOrt::BuildModel() {
         break;
       }
       case mojom::Operation::Tag::kCumulativeSum:
-      case mojom::Operation::Tag::kDequantizeLinear:
       case mojom::Operation::Tag::kElu:
       case mojom::Operation::Tag::kGatherElements:
       case mojom::Operation::Tag::kGatherNd:
