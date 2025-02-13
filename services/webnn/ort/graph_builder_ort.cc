@@ -1031,7 +1031,7 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   std::vector<uint32_t> scale_shape = scale_descriptor.shape();
 
   int64_t axis = 0;
-  int64_t block_size = 1;
+  int64_t block_size;
   bool need_transpose = false;
 
   uint32_t not_one_value_count = 0;
@@ -1061,6 +1061,8 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   if (scale_shape.empty()) {
     // For per-tensor/layer dequantization the scale is a scalar.
     axis = 0;
+    // block_size must be 0 for per-tensor quantization.
+    block_size = 0;
   } else if (not_one_value_count <= 1 && is_per_axis) {
     // for per per-axis dequantization, scale and zeroPoint must be a 1-D
     // Tensor.
@@ -1068,6 +1070,8 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
                      PrependReshape(scale_name, {input_shape[axis]}));
     ASSIGN_OR_RETURN(zero_point_name,
                      PrependReshape(zero_point_name, {input_shape[axis]}));
+    // block_size must be 0 for per-axis quantization.
+    block_size = 0;
   } else {
     // For blocked dequantization it has the same shape as the input, except for
     // one dimension in which blocking is performed.
