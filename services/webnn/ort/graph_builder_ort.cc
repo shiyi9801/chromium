@@ -334,6 +334,27 @@ void GraphBuilderOrt::AppendTranspose(std::string_view input_name,
                          attributes);
 }
 
+[[nodiscard]] base::expected<std::string, mojom::ErrorPtr>
+GraphBuilderOrt::PrependReshape(std::string_view input_name,
+                                base::span<const int64_t> new_shape) {
+  const std::string node_name = GenerateNextOperationName("inserted_reshape");
+  const std::string output_name = GenerateNextOperandName();
+
+  // Shape is an operand with data type int64, not an attribute.
+  std::vector<uint32_t> new_shape_dims = {
+      base::checked_cast<uint32_t>(new_shape.size())};
+  ASSIGN_OR_RETURN(const std::string shape_name,
+                   CreateInitializer<int64_t>(new_shape_dims, new_shape));
+
+  std::array<const char*, 2> input_names = {input_name.data(),
+                                            shape_name.c_str()};
+  std::array<const char*, 1> output_names = {output_name.c_str()};
+
+  model_builder_.AddNode(kOpTypeReshape, node_name, input_names, output_names);
+
+  return output_name;
+}
+
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
   const mojom::Operand& operand = GetOperand(input_id);
   std::string name = GetOperandNameById(input_id);
@@ -1006,53 +1027,60 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
 
   const OperandDescriptor& scale_descriptor =
       GetOperand(dequantize_linear.scale_operand_id).descriptor;
+  // ZeroPoint has the same shape as the scale.
   std::vector<uint32_t> scale_shape = scale_descriptor.shape();
 
-  int64_t axis = 1;
-  int64_t block_size = 0;
+  int64_t axis = 0;
+  int64_t block_size = 1;
   bool need_transpose = false;
 
-  // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L220
-  if (scale_shape.size() > 2) {
-    return NewNotSupportedError(
-        "OpenVINO dequantizeLinear cannot operate with more than 2D scales");
+  uint32_t not_one_value_count = 0;
+  bool is_per_axis = false;
+  CHECK_LE(scale_shape.size(), input_shape.size());
+  for (size_t i = 0; i < scale_shape.size(); i++) {
+    if (scale_shape[scale_shape.size() - i - 1] != 1) {
+      not_one_value_count++;
+      if (not_one_value_count == 1 &&
+          scale_shape[scale_shape.size() - i - 1] ==
+              input_shape[input_shape.size() - i - 1]) {
+        axis = input_shape.size() - i - 1;
+        is_per_axis = true;
+      }
+    }
+  }
+
+  // Each value of scale_shape is 1.
+  if (not_one_value_count == 0) {
+    auto it = std::find(input_shape.begin(), input_shape.end(), 1);
+    if (it != input_shape.end()) {
+      axis = std::distance(input_shape.begin(), it);
+      is_per_axis = true;
+    }
   }
 
   if (scale_shape.empty()) {
     // For per-tensor/layer dequantization the scale is a scalar.
     axis = 0;
-  } else if (scale_shape.size() == 1) {
-    bool is_valid = false;
-    // for per per-axis dequantization it is a 1-D Tensor
-    for (size_t i = 0; i < input_shape.size(); i++) {
-      if (scale_shape[0] == input_shape[i]) {
-        axis = i;
-        is_valid = true;
-      }
-    }
-    if (!is_valid) {
-      return NewNotSupportedError(
-          "For 1D scale, the size of scale must be the same as the size of the "
-          "input dim specified by the axis.");
-    }
+  } else if (not_one_value_count <= 1 && is_per_axis) {
+    // for per per-axis dequantization, scale and zeroPoint must be a 1-D
+    // Tensor.
+    ASSIGN_OR_RETURN(scale_name,
+                     PrependReshape(scale_name, {input_shape[axis]}));
+    ASSIGN_OR_RETURN(zero_point_name,
+                     PrependReshape(zero_point_name, {input_shape[axis]}));
   } else {
-    CHECK_EQ(scale_shape.size(), 2u);
     // For blocked dequantization it has the same shape as the input, except for
     // one dimension in which blocking is performed.
     if (scale_shape.size() == input_shape.size()) {
-      uint32_t diff_count = 0;
+      uint32_t blocked_axis_count = 0;
       for (size_t i = 0; i < input_shape.size(); i++) {
         if (scale_shape[i] != input_shape[i]) {
-          // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L230
-          if (input_shape[i] % scale_shape[i] != 0) {
-            return NewNotSupportedError(
-                "For blocked dequantization, OpenVINO DequantizeLinear doesn't "
-                "support case when input cannot be divided by scale.");
-          }
           block_size = input_shape[i] / scale_shape[i];
           axis = i;
-          diff_count++;
-          if (diff_count > 1) {
+          blocked_axis_count++;
+          // TODO(https://github.com/shiyi9801/chromium/issues/135): Consider to
+          // add emulation to support multi-dimensions blockwise.
+          if (blocked_axis_count > 1) {
             return NewNotSupportedError(
                 "For blocked dequantization it has the same shape as the "
                 "input, except for one dimension in which blocking is "
@@ -1061,20 +1089,26 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
         }
       }
       // The shape of scale is the same as the shape of input.
-      if (diff_count == 0) {
+      if (blocked_axis_count == 0) {
         axis = 0;
         block_size = 1;
       }
 
       // Currently, OpenVINO only supports axis == 0 when scale.size == 2.
       // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L228.
-      if (axis != 0) {
+      if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kWebNNOrtUseOpenvino) &&
+          axis != 0) {
         input_name = PrependTranspose(input_name, {1, 0});
         scale_name = PrependTranspose(scale_name, {1, 0});
         zero_point_name = PrependTranspose(zero_point_name, {1, 0});
         axis = 0;
         need_transpose = true;
       }
+    } else {
+      return NewNotSupportedError(
+          "Currently, ONNX only supports per-tensor, per-axis and block-wise "
+          "dequantizeLinear");
     }
   }
 

@@ -131,6 +131,10 @@ class GraphBuilderOrt {
   std::string PrependCast(std::string_view input_name,
                           ONNXTensorElementDataType to_data_type);
 
+  [[nodiscard]] base::expected<std::string, mojom::ErrorPtr> PrependReshape(
+      std::string_view input_name,
+      base::span<const int64_t> new_shape);
+
   std::string PrependTranspose(std::string_view input_name,
                                base::span<const uint32_t> permutation);
 
