@@ -1106,6 +1106,9 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
         need_transpose = true;
       }
     } else {
+      // The proposal of requiring scale and zeroPoint to be the same rank as
+      // the input is under discussion-
+      // https://github.com/webmachinelearning/webnn/pull/805#discussion_r1919498405
       return NewNotSupportedError(
           "Currently, ONNX only supports per-tensor, per-axis and block-wise "
           "dequantizeLinear");
