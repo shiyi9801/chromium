@@ -71,6 +71,7 @@ constexpr char kOpTypeConv2d[] = "Conv";
 constexpr char kOpTypeConvTranspose2d[] = "ConvTranspose";
 constexpr char kOpTypeExpand[] = "Expand";
 constexpr char kOpTypeGather[] = "Gather";
+constexpr char kOpTypeGatherND[] = "GatherND";
 constexpr char kOpTypeGelu[] = "Gelu";
 constexpr char kOpTypeGemm[] = "Gemm";
 constexpr char kOpTypeInstanceNormalization[] = "InstanceNormalization";
@@ -975,6 +976,47 @@ void GraphBuilderOrt::AddGatherOperation(const mojom::Gather& gather) {
                          attributes);
 }
 
+void GraphBuilderOrt::AddGatherNDOperation(const mojom::GatherND& gather_nd) {
+  const std::string node_name = GenerateNextOperationName(gather_nd.label);
+  const std::string input_name = GetOperandNameById(gather_nd.input_operand_id);
+  const std::string indices_name =
+      GetOperandNameById(gather_nd.indices_operand_id);
+  const std::string output_name =
+      GetOperandNameById(gather_nd.output_operand_id);
+
+  std::string int64_indices_name;
+  const OperandDataType indices_data_type =
+      GetOperand(gather_nd.indices_operand_id).descriptor.data_type();
+
+  // TODO(https://github.com/shiyi9801/chromium/issues/141): Clamp the indices
+  // operand to ensure it won't be out-of-bound.
+
+  // ONNX GatherND only supports int64 indices.
+  switch (indices_data_type) {
+    case OperandDataType::kInt64: {
+      int64_indices_name = indices_name;
+      break;
+    }
+    case OperandDataType::kInt32:
+    case OperandDataType::kUint32: {
+      int64_indices_name = GenerateNextOperandName();
+      AppendCast(
+          indices_name, int64_indices_name,
+          ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);
+      break;
+    }
+    default:
+      NOTREACHED()
+          << "[WebNN] GatherND only supports int32, uint32 and int64 indices.";
+  }
+
+  std::array<const char*, 2> input_names = {input_name.c_str(),
+                                            int64_indices_name.c_str()};
+  std::array<const char*, 1> output_names = {output_name.c_str()};
+
+  model_builder_.AddNode(kOpTypeGatherND, node_name, input_names, output_names);
+}
+
 void GraphBuilderOrt::AddGemmOperation(const mojom::Gemm& gemm) {
   const std::string node_name = GenerateNextOperationName(gemm.label);
   const std::string input_a_name = GetOperandNameById(gemm.a_operand_id);
@@ -1574,7 +1616,7 @@ void GraphBuilderOrt::AddScatterNDOperation(
   const OperandDataType indices_data_type =
       GetOperand(scatter_nd.indices_operand_id).descriptor.data_type();
 
-  // ONNX only supports int64 indices.
+  // ONNX ScatterND only supports int64 indices.
   switch (indices_data_type) {
     case OperandDataType::kInt64: {
       int64_indices_name = indices_name;
@@ -1589,8 +1631,8 @@ void GraphBuilderOrt::AddScatterNDOperation(
       break;
     }
     default:
-      NOTREACHED() << "[WebNN] ScatterND only supports data type int32, uint32 "
-                      "and int64.";
+      NOTREACHED()
+          << "[WebNN] ScatterND only supports int32, uint32 and int64 indices.";
   }
 
   std::array<const char*, 3> input_names = {
@@ -1832,6 +1874,10 @@ GraphBuilderOrt::BuildModel() {
         AddGatherOperation(*operation->get_gather());
         break;
       }
+      case mojom::Operation::Tag::kGatherNd: {
+        AddGatherNDOperation(*operation->get_gather_nd());
+        break;
+      }
       case mojom::Operation::Tag::kGelu: {
         AddUnaryOperation(*operation->get_gelu(), kOpTypeGelu);
         break;
@@ -1914,7 +1960,6 @@ GraphBuilderOrt::BuildModel() {
       case mojom::Operation::Tag::kDequantizeLinear:
       case mojom::Operation::Tag::kElu:
       case mojom::Operation::Tag::kGatherElements:
-      case mojom::Operation::Tag::kGatherNd:
       case mojom::Operation::Tag::kGru:
       case mojom::Operation::Tag::kGruCell:
       case mojom::Operation::Tag::kHardSigmoid:

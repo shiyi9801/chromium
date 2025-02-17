@@ -176,6 +176,7 @@ class GraphBuilderOrt {
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddExpandOperation(
       const mojom::Expand& expand);
   void AddGatherOperation(const mojom::Gather& gather);
+  void AddGatherNDOperation(const mojom::GatherND& gather_nd);
   void AddGemmOperation(const mojom::Gemm& gemm);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr>
   AddInstanceNormalizationOperation(
