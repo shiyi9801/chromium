@@ -1030,7 +1030,7 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   // ZeroPoint has the same shape as the scale.
   std::vector<uint32_t> scale_shape = scale_descriptor.shape();
 
-  int64_t axis = 0;
+  std::optional<int64_t> axis;
   uint32_t not_one_value_dim_count = 0;
   bool found_same_size = false;
   CHECK_LE(scale_shape.size(), input_shape.size());
@@ -1049,30 +1049,23 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   // and scale shape is [1, 3, 4, 1].
   bool is_per_axis = found_same_size && not_one_value_dim_count == 1;
 
-  int64_t block_size;
+  std::optional<int64_t> block_size;
   bool need_transpose = false;
   if (scale_shape.empty()) {
     // For per-tensor/layer dequantization the scale is a scalar.
-    axis = 0;
-    // block_size must be 0 for per-tensor quantization.
-    block_size = 0;
   } else if (not_one_value_dim_count == 0) {
     // The numbers in scale shape are all 1., scale and zeroPoint should be
     // reshaped to a scalar.
     ASSIGN_OR_RETURN(scale_name, PrependReshape(scale_name, {}));
     ASSIGN_OR_RETURN(zero_point_name, PrependReshape(zero_point_name, {}));
-    axis = 0;
-    // block_size must be 0 for per-tensor quantization.
-    block_size = 0;
   } else if (is_per_axis) {
     // For per-axis dequantization, scale and zeroPoint must be a 1-D
     // Tensor.
     ASSIGN_OR_RETURN(scale_name,
-                     PrependReshape(scale_name, {input_shape[axis]}));
-    ASSIGN_OR_RETURN(zero_point_name,
-                     PrependReshape(zero_point_name, {input_shape[axis]}));
-    // block_size must be 0 for per-axis quantization.
-    block_size = 0;
+                     PrependReshape(scale_name, {input_shape[axis.value()]}));
+    ASSIGN_OR_RETURN(
+        zero_point_name,
+        PrependReshape(zero_point_name, {input_shape[axis.value()]}));
   } else if (scale_shape.size() == input_shape.size()) {
     // For blocked dequantization it has the same shape as the input, except for
     // one dimension in which blocking is performed.
@@ -1098,15 +1091,20 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
 
     // Currently, OpenVINO only supports axis == 0 when scale.size == 2.
     // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L228.
-    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kWebNNOrtUseOpenvino) &&
-        axis != 0) {
-      CHECK_EQ(scale_shape.size(), 2u);
-      input_name = PrependTranspose(input_name, {1, 0});
-      scale_name = PrependTranspose(scale_name, {1, 0});
-      zero_point_name = PrependTranspose(zero_point_name, {1, 0});
-      axis = 0;
-      need_transpose = true;
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kWebNNOrtUseOpenvino)) {
+      if (scale_shape.size() != 2) {
+        // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L220
+        return NewNotSupportedError(
+            "Currently ORT OpenVINO only support 2D scale for block_wise "
+            "dequantizeLinear.");
+      } else if (axis == 1) {
+        input_name = PrependTranspose(input_name, {1, 0});
+        scale_name = PrependTranspose(scale_name, {1, 0});
+        zero_point_name = PrependTranspose(zero_point_name, {1, 0});
+        axis = 0;
+        need_transpose = true;
+      }
     }
   } else {
     // The proposal of requiring scale and zeroPoint to be the same rank as
@@ -1124,14 +1122,22 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
       input_name.c_str(), scale_name.c_str(), zero_point_name.c_str()};
   base::FixedArray<const char*> output_names = {transposed_output_name.c_str()};
 
-  std::array<OrtOpAttr*, 2> attributes = {
-      model_builder_
-          .CreateAttribute(/*name=*/"axis", base::checked_cast<int64_t>(axis))
-          .Release(),
-      model_builder_
-          .CreateAttribute(/*name=*/"block_size",
-                           base::checked_cast<int64_t>(block_size))
-          .Release()};
+  std::vector<OrtOpAttr*> attributes;
+  if (axis.has_value()) {
+    attributes.push_back(
+        model_builder_
+            .CreateAttribute(/*name=*/"axis",
+                             base::checked_cast<int64_t>(axis.value()))
+            .Release());
+  }
+
+  if (block_size.has_value()) {
+    attributes.push_back(
+        model_builder_
+            .CreateAttribute(/*name=*/"block_size",
+                             base::checked_cast<int64_t>(block_size.value()))
+            .Release());
+  }
 
   model_builder_.AddNode(kOpTypeDequantizeLinear, node_name, input_names,
                          output_names, attributes);
