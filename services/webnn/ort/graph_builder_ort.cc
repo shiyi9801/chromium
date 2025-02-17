@@ -1031,40 +1031,41 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   std::vector<uint32_t> scale_shape = scale_descriptor.shape();
 
   int64_t axis = 0;
-  int64_t block_size;
-  bool need_transpose = false;
-
-  uint32_t not_one_value_count = 0;
-  bool is_per_axis = false;
+  uint32_t not_one_value_dim_count = 0;
+  bool found_same_size = false;
   CHECK_LE(scale_shape.size(), input_shape.size());
   for (size_t i = 0; i < scale_shape.size(); i++) {
     if (scale_shape[scale_shape.size() - i - 1] != 1) {
-      not_one_value_count++;
-      if (not_one_value_count == 1 &&
-          scale_shape[scale_shape.size() - i - 1] ==
-              input_shape[input_shape.size() - i - 1]) {
+      not_one_value_dim_count++;
+      if (scale_shape[scale_shape.size() - i - 1] ==
+          input_shape[input_shape.size() - i - 1]) {
         axis = input_shape.size() - i - 1;
-        is_per_axis = true;
+        found_same_size = true;
       }
     }
   }
+  // TODO(https://github.com/shiyi9801/chromium/issues/139): Consider to add
+  // emulation to support multiple axes case, e.g. input shape is [2, 3, 4, 5]
+  // and scale shape is [1, 3, 4, 1].
+  bool is_per_axis = found_same_size && not_one_value_dim_count == 1;
 
-  // Each value of scale_shape is 1.
-  if (not_one_value_count == 0) {
-    auto it = std::find(input_shape.begin(), input_shape.end(), 1);
-    if (it != input_shape.end()) {
-      axis = std::distance(input_shape.begin(), it);
-      is_per_axis = true;
-    }
-  }
-
+  int64_t block_size;
+  bool need_transpose = false;
   if (scale_shape.empty()) {
     // For per-tensor/layer dequantization the scale is a scalar.
     axis = 0;
     // block_size must be 0 for per-tensor quantization.
     block_size = 0;
-  } else if (not_one_value_count <= 1 && is_per_axis) {
-    // for per per-axis dequantization, scale and zeroPoint must be a 1-D
+  } else if (not_one_value_dim_count == 0) {
+    // The numbers in scale shape are all 1., scale and zeroPoint should be
+    // reshaped to a scalar.
+    ASSIGN_OR_RETURN(scale_name, PrependReshape(scale_name, {}));
+    ASSIGN_OR_RETURN(zero_point_name, PrependReshape(zero_point_name, {}));
+    axis = 0;
+    // block_size must be 0 for per-tensor quantization.
+    block_size = 0;
+  } else if (is_per_axis) {
+    // For per-axis dequantization, scale and zeroPoint must be a 1-D
     // Tensor.
     ASSIGN_OR_RETURN(scale_name,
                      PrependReshape(scale_name, {input_shape[axis]}));
@@ -1072,51 +1073,48 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
                      PrependReshape(zero_point_name, {input_shape[axis]}));
     // block_size must be 0 for per-axis quantization.
     block_size = 0;
-  } else {
+  } else if (scale_shape.size() == input_shape.size()) {
     // For blocked dequantization it has the same shape as the input, except for
     // one dimension in which blocking is performed.
-    if (scale_shape.size() == input_shape.size()) {
-      uint32_t blocked_axis_count = 0;
-      for (size_t i = 0; i < input_shape.size(); i++) {
-        if (scale_shape[i] != input_shape[i]) {
-          block_size = input_shape[i] / scale_shape[i];
-          axis = i;
-          blocked_axis_count++;
-          // TODO(https://github.com/shiyi9801/chromium/issues/135): Consider to
-          // add emulation to support multi-dimensions blockwise.
-          if (blocked_axis_count > 1) {
-            return NewNotSupportedError(
-                "For blocked dequantization it has the same shape as the "
-                "input, except for one dimension in which blocking is "
-                "performed");
-          }
+    uint32_t blocked_axis_count = 0;
+    axis = 0;
+    block_size = 1;
+    for (size_t i = 0; i < input_shape.size(); i++) {
+      if (scale_shape[i] != input_shape[i]) {
+        CHECK_EQ(input_shape[i] % scale_shape[i], 0u);
+        block_size = input_shape[i] / scale_shape[i];
+        axis = i;
+        blocked_axis_count++;
+        // TODO(https://github.com/shiyi9801/chromium/issues/135): Consider to
+        // add emulation to support multi-dimensions blockwise.
+        if (blocked_axis_count > 1) {
+          return NewNotSupportedError(
+              "For blocked dequantization scale has the same shape as the "
+              "input or except for one dimension in which blocking is "
+              "performed");
         }
       }
-      // The shape of scale is the same as the shape of input.
-      if (blocked_axis_count == 0) {
-        axis = 0;
-        block_size = 1;
-      }
-
-      // Currently, OpenVINO only supports axis == 0 when scale.size == 2.
-      // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L228.
-      if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kWebNNOrtUseOpenvino) &&
-          axis != 0) {
-        input_name = PrependTranspose(input_name, {1, 0});
-        scale_name = PrependTranspose(scale_name, {1, 0});
-        zero_point_name = PrependTranspose(zero_point_name, {1, 0});
-        axis = 0;
-        need_transpose = true;
-      }
-    } else {
-      // The proposal of requiring scale and zeroPoint to be the same rank as
-      // the input is under discussion-
-      // https://github.com/webmachinelearning/webnn/pull/805#discussion_r1919498405
-      return NewNotSupportedError(
-          "Currently, ONNX only supports per-tensor, per-axis and block-wise "
-          "dequantizeLinear");
     }
+
+    // Currently, OpenVINO only supports axis == 0 when scale.size == 2.
+    // https://github.com/openvinotoolkit/openvino/blob/master/src/frontends/onnx/frontend/src/op/dequantize_linear.cpp#L228.
+    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kWebNNOrtUseOpenvino) &&
+        axis != 0) {
+      CHECK_EQ(scale_shape.size(), 2u);
+      input_name = PrependTranspose(input_name, {1, 0});
+      scale_name = PrependTranspose(scale_name, {1, 0});
+      zero_point_name = PrependTranspose(zero_point_name, {1, 0});
+      axis = 0;
+      need_transpose = true;
+    }
+  } else {
+    // The proposal of requiring scale and zeroPoint to be the same rank as
+    // the input is under discussion-
+    // https://github.com/webmachinelearning/webnn/pull/805#discussion_r1919498405
+    return NewNotSupportedError(
+        "Currently, ONNX only supports per-tensor, per-axis and block-wise "
+        "dequantizeLinear");
   }
 
   const std::string transposed_output_name =
