@@ -1061,6 +1061,7 @@ GraphBuilderOrt::AddDequantizeLinearOperation(
   } else if (is_per_axis) {
     // For per-axis dequantization, scale and zeroPoint must be a 1-D
     // Tensor.
+    CHECK(axis.has_value());
     ASSIGN_OR_RETURN(scale_name,
                      PrependReshape(scale_name, {input_shape[axis.value()]}));
     ASSIGN_OR_RETURN(
