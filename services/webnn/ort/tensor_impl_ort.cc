@@ -98,7 +98,6 @@ void TensorImplOrt::ReadTensorImpl(ReadTensorCallback callback) {
             CHECK_STATUS(GetOrtApi()->GetTensorMutableData(
                 buffer_state->GetSharedLockedResource().tensor(),
                 &ort_tensor_raw_data));
-            CHECK(ort_tensor_raw_data);
             // SAFETY: ORT guarantees that it has allocated enough memory to
             // store tensor.
             mojo_base::BigBuffer output_buffer(UNSAFE_BUFFERS(
@@ -137,7 +136,6 @@ void TensorImplOrt::WriteTensorImpl(mojo_base::BigBuffer src_buffer) {
             CHECK_STATUS(GetOrtApi()->GetTensorMutableData(
                 buffer_state->GetExclusivelyLockedResource()->tensor(),
                 &ort_tensor_raw_data));
-            CHECK(ort_tensor_raw_data);
             UNSAFE_BUFFERS(
                 base::span(static_cast<uint8_t*>(ort_tensor_raw_data),
                            src_buffer.size()))

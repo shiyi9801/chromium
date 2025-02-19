@@ -4,6 +4,7 @@
 
 #include "services/webnn/ort/graph_builder_ort.h"
 
+#include <limits>
 #include <numeric>
 
 #include "base/command_line.h"
@@ -359,6 +360,42 @@ GraphBuilderOrt::PrependReshape(std::string_view input_name,
   model_builder_.AddNode(kOpTypeReshape, node_name, input_names, output_names);
 
   return output_name;
+}
+
+[[nodiscard]] base::expected<void, mojom::ErrorPtr>
+GraphBuilderOrt::AddSliceNode(std::string_view node_name,
+                              std::string_view input_name,
+                              std::string_view output_name,
+                              std::string_view axes_name,
+                              base::span<const int64_t> beginnings,
+                              base::span<const int64_t> endings,
+                              base::span<const int64_t> strides) {
+  // Starts is an operand with data type int64, not an attribute.
+  std::vector<uint32_t> starts_shape = {
+      base::checked_cast<uint32_t>(beginnings.size())};
+  ASSIGN_OR_RETURN(const std::string starts_name,
+                   CreateInitializer<int64_t>(starts_shape, beginnings));
+
+  // Ends is an operand with data type int64, not an attribute.
+  std::vector<uint32_t> ends_shape = {
+      base::checked_cast<uint32_t>(endings.size())};
+  ASSIGN_OR_RETURN(const std::string ends_name,
+                   CreateInitializer<int64_t>(ends_shape, endings));
+
+  // Steps is an operand with data type int64, not an attribute.
+  std::vector<uint32_t> steps_shape = {
+      base::checked_cast<uint32_t>(strides.size())};
+  ASSIGN_OR_RETURN(const std::string steps_name,
+                   CreateInitializer<int64_t>(steps_shape, strides));
+
+  std::array<const char*, 5> input_names = {
+      input_name.data(), starts_name.data(), ends_name.data(), axes_name.data(),
+      steps_name.data()};
+  std::array<const char*, 1> output_names = {output_name.data()};
+
+  model_builder_.AddNode(kOpTypeSlice, node_name, input_names, output_names);
+
+  return base::ok();
 }
 
 void GraphBuilderOrt::AddInput(uint64_t input_id) {
@@ -1816,6 +1853,33 @@ GraphBuilderOrt::AddReshapeOperation(const mojom::Reshape& reshape) {
   return base::ok();
 }
 
+// Emulate it by slice operation since there is no reserve operation in ONNX.
+[[nodiscard]] base::expected<void, mojom::ErrorPtr>
+GraphBuilderOrt::AddReverseOperation(const mojom::Reverse& reverse) {
+  const std::string node_name = GenerateNextOperationName(reverse.label);
+  const std::string input_name = GetOperandNameById(reverse.input_operand_id);
+  const std::string output_name = GetOperandNameById(reverse.output_operand_id);
+
+  // Axes can be empty, which means no dimensions are reversed.
+  std::vector<int64_t> reversed_axes(reverse.axes.begin(), reverse.axes.end());
+  size_t reversed_axes_size = reversed_axes.size();
+
+  base::FixedArray<int64_t> beginnings(reversed_axes_size,
+                                       std::numeric_limits<int64_t>::max());
+  base::FixedArray<int64_t> endings(reversed_axes_size,
+                                    std::numeric_limits<int64_t>::min());
+  base::FixedArray<int64_t> strides(reversed_axes_size, -1);
+
+  // Axes is an operand with data type int64, not an attribute.
+  std::vector<uint32_t> axes_dims = {
+      base::checked_cast<uint32_t>(reversed_axes.size())};
+  ASSIGN_OR_RETURN(std::string axes_name,
+                   CreateInitializer<int64_t>(axes_dims, reversed_axes));
+
+  return AddSliceNode(node_name, input_name, output_name, axes_name, beginnings,
+                      endings, strides);
+}
+
 void GraphBuilderOrt::AddScatterNDOperation(
     const mojom::ScatterND& scatter_nd) {
   const std::string node_name = GenerateNextOperationName(scatter_nd.label);
@@ -1876,36 +1940,12 @@ GraphBuilderOrt::AddSliceOperation(const mojom::Slice& slice) {
     strides[i] = base::checked_cast<int64_t>(slice.ranges[i].stride);
   }
 
-  // Starts is an operand with data type int64, not an attribute.
-  std::vector<uint32_t> starts_shape = {
-      base::checked_cast<uint32_t>(beginnings.size())};
-  ASSIGN_OR_RETURN(const std::string starts_name,
-                   CreateInitializer<int64_t>(starts_shape, beginnings));
-
-  // Ends is an operand with data type int64, not an attribute.
-  std::vector<uint32_t> ends_shape = {
-      base::checked_cast<uint32_t>(endings.size())};
-  ASSIGN_OR_RETURN(const std::string ends_name,
-                   CreateInitializer<int64_t>(ends_shape, endings));
-
-  // Steps is an operand with data type int64, not an attribute.
-  std::vector<uint32_t> steps_shape = {
-      base::checked_cast<uint32_t>(strides.size())};
-  ASSIGN_OR_RETURN(const std::string steps_name,
-                   CreateInitializer<int64_t>(steps_shape, strides));
-
   // Axes is an optional input, if not provided, it is an empty string and will
   // be treated as [0, 1, …, len(starts) - 1]:
   // https://onnx.ai/onnx/operators/onnx__Slice.html#inputs
   const std::string axes_name = "";
-  std::array<const char*, 5> input_names = {
-      input_name.c_str(), starts_name.c_str(), ends_name.c_str(),
-      axes_name.c_str(), steps_name.c_str()};
-  std::array<const char*, 1> output_names = {output_name.c_str()};
-
-  model_builder_.AddNode(kOpTypeSlice, node_name, input_names, output_names);
-
-  return base::ok();
+  return AddSliceNode(node_name, input_name, output_name, axes_name, beginnings,
+                      endings, strides);
 }
 
 void GraphBuilderOrt::AddSoftmaxOperation(const mojom::Softmax& softmax) {
@@ -2153,6 +2193,10 @@ GraphBuilderOrt::BuildModel() {
         RETURN_IF_ERROR(AddReshapeOperation(*operation->get_reshape()));
         break;
       }
+      case mojom::Operation::Tag::kReverse: {
+        RETURN_IF_ERROR(AddReverseOperation(*operation->get_reverse()));
+        break;
+      }
       case mojom::Operation::Tag::kScatterNd: {
         AddScatterNDOperation(*operation->get_scatter_nd());
         break;
@@ -2204,7 +2248,6 @@ GraphBuilderOrt::BuildModel() {
       case mojom::Operation::Tag::kLstmCell:
       case mojom::Operation::Tag::kPrelu:
       case mojom::Operation::Tag::kQuantizeLinear:
-      case mojom::Operation::Tag::kReverse:
       case mojom::Operation::Tag::kScatterElements:
       case mojom::Operation::Tag::kTanh:
       case mojom::Operation::Tag::kTile:

@@ -150,6 +150,15 @@ class GraphBuilderOrt {
                        std::string_view output_name,
                        base::span<const uint32_t> permutation);
 
+  [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddSliceNode(
+      std::string_view node_name,
+      std::string_view input_name,
+      std::string_view output_name,
+      std::string_view axes_name,
+      base::span<const int64_t> beginnings,
+      base::span<const int64_t> endings,
+      base::span<const int64_t> strides);
+
   void AddInput(uint64_t input_id);
   void AddOutput(uint64_t output_id);
 
@@ -210,6 +219,8 @@ class GraphBuilderOrt {
       const mojom::Resample2d& resample2d);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddReshapeOperation(
       const mojom::Reshape& reshape);
+  [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddReverseOperation(
+      const mojom::Reverse& reverse);
   void AddScatterNDOperation(const mojom::ScatterND& scatter_nd);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddSliceOperation(
       const mojom::Slice& slice);
