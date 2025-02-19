@@ -194,6 +194,7 @@ class GraphBuilderOrt {
   void AddGatherElementsOperation(const mojom::GatherElements& gather_elements);
   void AddGatherNDOperation(const mojom::GatherND& gather_nd);
   void AddGemmOperation(const mojom::Gemm& gemm);
+  void AddHardSigmoidOperation(const mojom::HardSigmoid& hard_sigmoid);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr>
   AddInstanceNormalizationOperation(
       const mojom::InstanceNormalization& instance_normalization);
@@ -201,10 +202,12 @@ class GraphBuilderOrt {
   AddLayerNormalizationOperation(
       const mojom::LayerNormalization& layer_normalization);
   void AddLogicalNotOperation(const mojom::ElementWiseUnary& logical_not);
+  void AddLeakyReluOperation(const mojom::LeakyRelu& leaky_relu);
   void AddMatMulOperation(const mojom::Matmul& matmul);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddPadOperation(
       const mojom::Pad& pad);
   void AddPool2dOperation(const mojom::Pool2d& pool2d);
+  void AddPreluOperation(const mojom::Prelu& prelu);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddReduceOperation(
       const mojom::Reduce& reduce);
   [[nodiscard]] base::expected<void, mojom::ErrorPtr> AddResample2dOperation(
