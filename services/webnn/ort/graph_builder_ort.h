@@ -155,9 +155,9 @@ class GraphBuilderOrt {
       std::string_view input_name,
       std::string_view output_name,
       std::string_view axes_name,
-      base::span<const int64_t> beginnings,
-      base::span<const int64_t> endings,
-      base::span<const int64_t> strides);
+      base::span<const int64_t> starts,
+      base::span<const int64_t> ends,
+      base::span<const int64_t> steps);
 
   void AddInput(uint64_t input_id);
   void AddOutput(uint64_t output_id);

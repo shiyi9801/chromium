@@ -367,26 +367,26 @@ GraphBuilderOrt::AddSliceNode(std::string_view node_name,
                               std::string_view input_name,
                               std::string_view output_name,
                               std::string_view axes_name,
-                              base::span<const int64_t> beginnings,
-                              base::span<const int64_t> endings,
-                              base::span<const int64_t> strides) {
+                              base::span<const int64_t> starts,
+                              base::span<const int64_t> ends,
+                              base::span<const int64_t> steps) {
   // Starts is an operand with data type int64, not an attribute.
   std::vector<uint32_t> starts_shape = {
-      base::checked_cast<uint32_t>(beginnings.size())};
+      base::checked_cast<uint32_t>(starts.size())};
   ASSIGN_OR_RETURN(const std::string starts_name,
-                   CreateInitializer<int64_t>(starts_shape, beginnings));
+                   CreateInitializer<int64_t>(starts_shape, starts));
 
   // Ends is an operand with data type int64, not an attribute.
   std::vector<uint32_t> ends_shape = {
-      base::checked_cast<uint32_t>(endings.size())};
+      base::checked_cast<uint32_t>(ends.size())};
   ASSIGN_OR_RETURN(const std::string ends_name,
-                   CreateInitializer<int64_t>(ends_shape, endings));
+                   CreateInitializer<int64_t>(ends_shape, ends));
 
   // Steps is an operand with data type int64, not an attribute.
   std::vector<uint32_t> steps_shape = {
-      base::checked_cast<uint32_t>(strides.size())};
+      base::checked_cast<uint32_t>(steps.size())};
   ASSIGN_OR_RETURN(const std::string steps_name,
-                   CreateInitializer<int64_t>(steps_shape, strides));
+                   CreateInitializer<int64_t>(steps_shape, steps));
 
   std::array<const char*, 5> input_names = {
       input_name.data(), starts_name.data(), ends_name.data(), axes_name.data(),
@@ -1861,23 +1861,22 @@ GraphBuilderOrt::AddReverseOperation(const mojom::Reverse& reverse) {
   const std::string output_name = GetOperandNameById(reverse.output_operand_id);
 
   // Axes can be empty, which means no dimensions are reversed.
-  std::vector<int64_t> reversed_axes(reverse.axes.begin(), reverse.axes.end());
-  size_t reversed_axes_size = reversed_axes.size();
+  std::vector<int64_t> reverse_axes(reverse.axes.begin(), reverse.axes.end());
+  size_t reverse_axes_size = reverse_axes.size();
 
-  base::FixedArray<int64_t> beginnings(reversed_axes_size,
-                                       std::numeric_limits<int64_t>::max());
-  base::FixedArray<int64_t> endings(reversed_axes_size,
-                                    std::numeric_limits<int64_t>::min());
-  base::FixedArray<int64_t> strides(reversed_axes_size, -1);
+  base::FixedArray<int64_t> starts(reverse_axes_size, -1);
+  base::FixedArray<int64_t> ends(reverse_axes_size,
+                                 std::numeric_limits<int64_t>::min());
+  base::FixedArray<int64_t> steps(reverse_axes_size, -1);
 
   // Axes is an operand with data type int64, not an attribute.
   std::vector<uint32_t> axes_dims = {
-      base::checked_cast<uint32_t>(reversed_axes.size())};
+      base::checked_cast<uint32_t>(reverse_axes_size)};
   ASSIGN_OR_RETURN(std::string axes_name,
-                   CreateInitializer<int64_t>(axes_dims, reversed_axes));
+                   CreateInitializer<int64_t>(axes_dims, reverse_axes));
 
-  return AddSliceNode(node_name, input_name, output_name, axes_name, beginnings,
-                      endings, strides);
+  return AddSliceNode(node_name, input_name, output_name, axes_name, starts,
+                      ends, steps);
 }
 
 void GraphBuilderOrt::AddScatterNDOperation(
@@ -1930,22 +1929,22 @@ GraphBuilderOrt::AddSliceOperation(const mojom::Slice& slice) {
   const std::string output_name = GetOperandNameById(slice.output_operand_id);
 
   auto range = slice.ranges;
-  base::FixedArray<int64_t> beginnings(slice.ranges.size());
-  base::FixedArray<int64_t> endings(slice.ranges.size());
-  base::FixedArray<int64_t> strides(slice.ranges.size());
+  base::FixedArray<int64_t> starts(slice.ranges.size());
+  base::FixedArray<int64_t> ends(slice.ranges.size());
+  base::FixedArray<int64_t> steps(slice.ranges.size());
   for (size_t i = 0; i < slice.ranges.size(); ++i) {
-    beginnings[i] = base::checked_cast<int64_t>(slice.ranges[i].start);
-    endings[i] = base::checked_cast<int64_t>(slice.ranges[i].start +
-                                             slice.ranges[i].size);
-    strides[i] = base::checked_cast<int64_t>(slice.ranges[i].stride);
+    starts[i] = base::checked_cast<int64_t>(slice.ranges[i].start);
+    ends[i] = base::checked_cast<int64_t>(slice.ranges[i].start +
+                                          slice.ranges[i].size);
+    steps[i] = base::checked_cast<int64_t>(slice.ranges[i].stride);
   }
 
   // Axes is an optional input, if not provided, it is an empty string and will
   // be treated as [0, 1, …, len(starts) - 1]:
   // https://onnx.ai/onnx/operators/onnx__Slice.html#inputs
   const std::string axes_name = "";
-  return AddSliceNode(node_name, input_name, output_name, axes_name, beginnings,
-                      endings, strides);
+  return AddSliceNode(node_name, input_name, output_name, axes_name, starts,
+                      ends, steps);
 }
 
 void GraphBuilderOrt::AddSoftmaxOperation(const mojom::Softmax& softmax) {
