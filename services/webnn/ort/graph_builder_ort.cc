@@ -1752,6 +1752,11 @@ void GraphBuilderOrt::AddPool2dOperation(const mojom::Pool2d& pool2d) {
 void GraphBuilderOrt::AddPreluOperation(const mojom::Prelu& prelu) {
   const std::string node_name = GenerateNextOperationName(prelu.label);
   const std::string input_name = GetOperandNameById(prelu.input_operand_id);
+  // ONNX Prelu requires slope's shape must be unidirectional broadcastable to
+  // input when the shape of slope is smaller than the input. While WebNN allows
+  // input and slope to be bidirectionally broadcastable.
+  // TODO(https://github.com/shiyi9801/chromium/issues/153): Consider to emulate
+  // if slope is not unidirectional broadcastable to input.
   const std::string slope_name = GetOperandNameById(prelu.slope_operand_id);
   const std::string output_name = GetOperandNameById(prelu.output_operand_id);
 
