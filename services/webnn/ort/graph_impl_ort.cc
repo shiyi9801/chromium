@@ -30,13 +30,42 @@ namespace webnn::ort {
 
 namespace {
 
-// These keys and values must align with the implementation of the ORT OpenVINO
-// EP:
+// These OpenVINO EP specific keys and values must align with the implementation
+// of the ORT OpenVINO EP. Misalignment of keys will be ignored. Misalignment of
+// values may cause errors.
+//
+// According to
 // https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/providers/openvino/openvino_provider_factory.cc
-// Misalignment of keys will be ignored. Misalignment of values may cause
-// errors.
+// and
+// https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html#summary-of-options,
+// valid keys and values should be:
+//
+// -[device_type]: "CPU", "GPU", "NPU", "GPU.x" where x = 0,1,2 and so on or
+// from "HETERO"/"MULTI"/"AUTO" options.
+// -[precision]: "FP32", "FP16", "ACCURACY". You needn't specify the precision
+// for CPU and NPU, because CPU only supports FP32 by default and NPU only
+// supports FP16 by default. GPU uses FP16 by default.
+// -[num_of_threads]: Any unsigned positive number other than 0. Specifies the
+// number of threads at runtime.
+// -[load_config]: JSON config map to load custom OV parameters.
+// -[cache_dir]: Path to dump and load the blobs for the model caching/kernel
+// caching.
+// -[model_priority]: "LOW", "MEDIUM", "HIGH", "DEFAULT". High-level OpenVINO
+// model priority hint.
+// -[num_streams]: Any unsigned positive number other than 0. specifies the
+// number of parallel inference requests.
+// -[context]: OpenCL Context with void* type.
+// -[enable_opencl_throttling]: "true", "false" or "True", "False". Enables
+// OpenCL queue throttling for GPU device.
+// -[disable_dynamic_shapes]: "true", "false" or "True", "False". Always true
+// for NPU plugin. Rewrite dynamic shaped models to static shape at runtime and
+// execute.
+// -[enable_qdq_optimizer]: "true", "false" or "True", "False". Enables QDQ
+// pruning for efficient inference latency with NPU.
+//
+// Keys:
 constexpr char kOVPrecision[] = "precision";
-
+// Values:
 constexpr char kOVDeviceType[] = "device_type";
 constexpr char kOVDeviceGPU[] = "GPU";
 constexpr char kOVDeviceCPU[] = "CPU";
