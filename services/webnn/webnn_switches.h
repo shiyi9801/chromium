@@ -56,7 +56,7 @@ inline constexpr char kWebNNOrtDisableCpuFallback[] =
 // "ov::hint::ExecutionMode::ACCURACY"
 //
 // More details for the inference precision and execution mode can be found at
-// https://docs.openvino.ai/2025/openvino-workflow/running-inference/optimize-inference/precision-control.html.
+// https://docs.openvino.ai/2025/openvino-workflow/running-inference/optimize-inference/precision-control.html
 inline constexpr char kWebNNOrtOVGpuPrecision[] = "webnn-ort-ov-gpu-precision";
 #endif  // BUILDFLAG(WEBNN_USE_ORT)
 
