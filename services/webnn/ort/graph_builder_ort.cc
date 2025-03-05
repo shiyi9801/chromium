@@ -285,9 +285,13 @@ base::expected<std::string, mojom::ErrorPtr> GraphBuilderOrt::CreateInitializer(
     status = model_editor_.AddInitializerAsRawData(
         name, int64_shape, byte_span, TensorTypeMap<DataType>::value);
   }
-  CHECK(!status.is_valid());
 
-  return name;
+  if (status.is_valid()) {
+    return base::unexpected(mojom::Error::New(mojom::Error::Code::kUnknownError,
+                                              "Failed to create initializer."));
+  } else {
+    return name;
+  }
 }
 
 template <typename DataType>
