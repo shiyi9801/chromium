@@ -236,11 +236,11 @@ GraphBuilderOrt::GraphBuilderOrt(
 
 GraphBuilderOrt::~GraphBuilderOrt() = default;
 
-const mojom::Operand& GraphBuilderOrt::GetOperand(uint64_t operand_id) {
+const mojom::Operand& GraphBuilderOrt::GetOperand(uint64_t operand_id) const {
   return *graph_info_->id_to_operand_map.at(operand_id);
 }
 
-std::string GraphBuilderOrt::GetOperandNameById(uint64_t operand_id) {
+std::string GraphBuilderOrt::GetOperandNameById(uint64_t operand_id) const {
   const mojom::Operand& operand = GetOperand(operand_id);
   std::string operand_label =
       operand.name.has_value() ? operand.name.value() : "";
@@ -285,13 +285,9 @@ base::expected<std::string, mojom::ErrorPtr> GraphBuilderOrt::CreateInitializer(
     status = model_editor_.AddInitializerAsRawData(
         name, int64_shape, byte_span, TensorTypeMap<DataType>::value);
   }
+  CHECK(!status.is_valid());
 
-  if (status.is_valid()) {
-    return base::unexpected(mojom::Error::New(mojom::Error::Code::kUnknownError,
-                                              "Failed to create initializer."));
-  } else {
-    return name;
-  }
+  return name;
 }
 
 template <typename DataType>
