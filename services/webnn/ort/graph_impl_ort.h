@@ -26,6 +26,7 @@
 namespace webnn {
 
 class WebNNConstantOperand;
+class ScopedTrace;
 
 namespace ort {
 
@@ -63,7 +64,8 @@ class GraphImplOrt final : public WebNNGraphImpl {
       mojom::CreateContextOptionsPtr context_options,
       ContextProperties context_properties,
       base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>
-          constant_operands);
+          constant_operands,
+      ScopedTrace scoped_trace);
 
   static void DidCreateAndBuild(
       base::WeakPtr<WebNNContextImpl> context,
