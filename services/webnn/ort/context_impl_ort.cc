@@ -111,9 +111,9 @@ SessionOptions::Create(const mojom::CreateContextOptions::Device device_type) {
   }
 
   // Enable strict shape type inference check. All inconsistencies encountered
-  // will expose errors during session creation. For example, if the WebNN model
-  // has a reduce op with keepdims set to 0, but the ONNX model has keepdims set
-  // to 1, the session creation will fail due to inconsistent shape.
+  // will expose errors during session creation. For example, if the graph
+  // output shape set by WebNN is different from ONNX shape inference result,
+  // the session creation will fail.
   CALL_ORT_FUNC(ort_api->AddSessionConfigEntry(
       session_options.get(),
       /*config_key=*/kOrtSessionOptionsConfigStrictShapeTypeInference,
