@@ -110,6 +110,11 @@ SessionOptions::Create(const mojom::CreateContextOptions::Device device_type) {
         /*config_value=*/"1"));
   }
 
+  CALL_ORT_FUNC(ort_api->AddSessionConfigEntry(
+      session_options.get(),
+      /*config_key=*/kOrtSessionOptionsConfigStrictShapeTypeInference,
+      /*config_value=*/"1"));
+
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kWebNNOrtUseOpenvino)) {
     std::vector<const char*> provider_options_keys;
