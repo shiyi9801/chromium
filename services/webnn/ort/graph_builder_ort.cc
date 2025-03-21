@@ -606,14 +606,14 @@ GraphBuilderOrt::Clamp(std::string_view input,
   ASSIGN_OR_RETURN(std::string max,
                    CreateInitializer<DataType>(shape, max_value));
 
-  // max(input_value, min_value)
+  // max_output = max(input_value, min_value)
   const std::string max_node = GenerateNextOperationName("inserted_max");
   const std::string max_output = GenerateNextOperandName();
   std::array<const char*, 2> max_inputs = {input.data(), min.c_str()};
   std::array<const char*, 1> max_outputs = {max_output.c_str()};
   model_editor_.AddNode(kOpTypeMax, max_node, max_inputs, max_outputs);
 
-  // min(input_value, max_value)
+  // min_output = min(max_output, max_value)
   const std::string min_node = GenerateNextOperationName("inserted_min");
   const std::string min_output = GenerateNextOperandName();
   std::array<const char*, 2> min_inputs = {max_output.c_str(), max.c_str()};
