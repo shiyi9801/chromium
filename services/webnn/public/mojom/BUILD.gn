@@ -3,8 +3,13 @@
 # found in the LICENSE file.
 
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//services/webnn/features.gni")
 
 mojom_component("mojom") {
+  if (webnn_use_ort) {
+    enabled_features = [ "webnn_use_ort" ]
+  }
+
   output_prefix = "webnn_mojom"
   macro_prefix = "WEBNN_MOJOM"
 

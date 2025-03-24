@@ -226,6 +226,7 @@
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/tracing/public/cpp/tracing_features.h"
+#include "services/webnn/buildflags.h"
 #include "services/webnn/public/mojom/features.mojom-features.h"
 #include "skia/buildflags.h"
 #include "storage/browser/quota/quota_features.h"
@@ -8360,6 +8361,20 @@ const FeatureEntry kFeatureEntries[] = {
      kOsAll,
      FEATURE_VALUE_TYPE(
          webnn::mojom::features::kExperimentalWebMachineLearningNeuralNetwork)},
+
+#if BUILDFLAG(WEBNN_USE_ORT)
+    {"webnn-ort", flag_descriptions::kWebNNOrtName,
+     flag_descriptions::kWebNNOrtDescription, kOsWin,
+     FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrt)},
+
+    {"webnn-ort-openvino", flag_descriptions::kWebNNOrtOpenVinoName,
+     flag_descriptions::kWebNNOrtOpenVinoDescription, kOsWin,
+     FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrtOpenVino)},
+
+    {"webnn-ort-cpu-fallback", flag_descriptions::kWebNNOrtCpuFallbackName,
+     flag_descriptions::kWebNNOrtCpuFallbackDescription, kOsWin,
+     FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrtCpuFallback)},
+#endif  // BUILDFLAG(WEBNN_USE_ORT)
 
 #if BUILDFLAG(IS_MAC)
     {"webnn-coreml", flag_descriptions::kWebNNCoreMLName,
