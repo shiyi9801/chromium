@@ -329,7 +329,6 @@ static const char* const kSwitchNames[] = {
 #endif
 #if BUILDFLAG(WEBNN_USE_ORT)
     switches::kWebNNOrtDumpModel,
-    switches::kWebNNOrtUseDmlGpu,
     switches::kWebNNOrtOVGpuPrecision,
     switches::kWebNNOrtUseOVModelCache,
 #endif

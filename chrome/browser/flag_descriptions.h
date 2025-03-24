@@ -1465,6 +1465,9 @@ extern const char kWebNNOrtCpuFallbackDescription[];
 
 extern const char kWebNNOrtOpenVinoName[];
 extern const char kWebNNOrtOpenVinoDescription[];
+
+extern const char kWebNNOrtDmlName[];
+extern const char kWebNNOrtDmlDescription[];
 #endif  // BUILDFLAG(WEBNN_USE_ORT)
 
 #if BUILDFLAG(IS_ANDROID)

@@ -33,9 +33,6 @@ inline constexpr char kWebNNTfliteDumpModel[] = "webnn-tflite-dump-model";
 // Usage: --no-sandbox --webnn-ort-dump-model=./OnnxModels
 inline constexpr char kWebNNOrtDumpModel[] = "webnn-ort-dump-model";
 
-// Use DirectML EP of ONNX Runtime
-inline constexpr char kWebNNOrtUseDmlGpu[] = "webnn-ort-use-dml";
-
 // For GPU, OV EP will use FP16 inference precision by default. You can specify
 // the flag to use FP32 or ACCURACY to get better accuracy, but it may result in
 // decreased performance.

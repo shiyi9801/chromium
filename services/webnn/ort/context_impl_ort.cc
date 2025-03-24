@@ -181,8 +181,7 @@ SessionOptions::Create(const mojom::CreateContextOptions::Device device_type) {
                             "OnnxRuntime OpenVINO EP is not supported."));
     }
 #if BUILDFLAG(IS_WIN)
-  } else if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-                 switches::kWebNNOrtUseDmlGpu) &&
+  } else if (base::FeatureList::IsEnabled(mojom::features::kWebNNOrtDml) &&
              device_type == mojom::CreateContextOptions::Device::kGpu) {
     CALL_ORT_FUNC(ort_api->SetSessionGraphOptimizationLevel(
         session_options.get(), GraphOptimizationLevel::ORT_ENABLE_BASIC));

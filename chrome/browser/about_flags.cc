@@ -8371,6 +8371,10 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kWebNNOrtOpenVinoDescription, kOsWin,
      FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrtOpenVino)},
 
+    {"webnn-ort-dml", flag_descriptions::kWebNNOrtDmlName,
+     flag_descriptions::kWebNNOrtDmlDescription, kOsWin,
+     FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrtDml)},
+
     {"webnn-ort-cpu-fallback", flag_descriptions::kWebNNOrtCpuFallbackName,
      flag_descriptions::kWebNNOrtCpuFallbackDescription, kOsWin,
      FEATURE_VALUE_TYPE(webnn::mojom::features::kWebNNOrtCpuFallback)},
