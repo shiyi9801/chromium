@@ -33,6 +33,11 @@ inline constexpr char kWebNNTfliteDumpModel[] = "webnn-tflite-dump-model";
 // Usage: --no-sandbox --webnn-ort-dump-model=./OnnxModels
 inline constexpr char kWebNNOrtDumpModel[] = "webnn-ort-dump-model";
 
+// Apply fusion of DQ + matmul into matmulnbits specified by
+// --webnn-ort-apply-matmulnbits-fusion
+inline constexpr char kWebNNOrtApplyMatMulNBitsFusion[] =
+    "webnn-ort-apply-matmulnbits-fusion";
+
 // For GPU, OV EP will use FP16 inference precision by default. You can specify
 // the flag to use FP32 or ACCURACY to get better accuracy, but it may result in
 // decreased performance.

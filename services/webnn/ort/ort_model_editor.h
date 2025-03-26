@@ -18,6 +18,19 @@ namespace webnn {
 
 namespace ort {
 
+// Domains
+constexpr char kOrtDomainName[] = "";
+constexpr char kMSDomainName[] = "com.microsoft";
+
+// Opsets
+constexpr int32_t kOrtOpsetVersion = 21;
+// EPContext op is used for exporting the EP context cache model.
+// https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html#onnxruntime-ep-context-cache-feature-design
+constexpr int32_t kEPContextOpsetVersion = 1;
+
+// Define the minimum size(in bytes) to use external data.
+constexpr size_t kMinExternalDataSize = 128;
+
 class OrtModelEditor {
  public:
   struct ModelInfo {
@@ -80,7 +93,8 @@ class OrtModelEditor {
                std::string_view node_name,
                base::span<const char*> input,
                base::span<const char*> output,
-               std::vector<ScopedOrtOpAttr> attributes = {});
+               std::vector<ScopedOrtOpAttr> attributes = {},
+               std::string_view domain_name = kOrtDomainName);
 
   std::unique_ptr<ModelInfo> BuildAndTakeModelInfo();
 
