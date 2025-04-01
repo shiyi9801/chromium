@@ -191,8 +191,15 @@ SessionOptions::Create(const mojom::CreateContextOptions::Device device_type) {
     // display GPU installed on the system.
     CALL_ORT_FUNC(ort_dml_api->SessionOptionsAppendExecutionProvider_DML(
         session_options.get(), /*device_id=*/0));
+    // The DML ep does not support the use of memory pattern optimizations
+    // or parallel execution in onnxruntime.
+    CALL_ORT_FUNC(ort_api->DisableMemPattern(session_options.get()));
+    CALL_ORT_FUNC(ort_api->SetSessionExecutionMode(
+        session_options.get(), ExecutionMode::ORT_SEQUENTIAL));
     CALL_ORT_FUNC(ort_api->AddSessionConfigEntry(
         session_options.get(), "ep.dml.disable_graph_fusion", "1"));
+    CALL_ORT_FUNC(ort_api->AddSessionConfigEntry(
+        session_options.get(), "ep.dml.enable_graph_capture", "0"));
 #endif  // BUILDFLAG(IS_WIN)
   } else {
     // Use CPU EP by default.

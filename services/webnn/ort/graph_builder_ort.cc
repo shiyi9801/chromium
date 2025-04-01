@@ -419,7 +419,8 @@ base::expected<std::string, mojom::ErrorPtr> GraphBuilderOrt::CreateInitializer(
   ScopedOrtStatus status;
   // TODO(https://github.com/shiyi9801/chromium/issues/70): Remove this
   // workaround for OpenVINO EP once the invalid external data issue is fixed.
-  if (!base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino)) {
+  if (!(base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino) ||
+        base::FeatureList::IsEnabled(mojom::features::kWebNNOrtDml))) {
     status = model_editor_.AddInitializer(name, int64_shape, byte_span,
                                           TensorTypeMap<DataType>::value);
 
@@ -720,7 +721,8 @@ GraphBuilderOrt::AddInitializer(uint64_t constant_id) {
   ScopedOrtStatus status;
   // TODO(https://github.com/shiyi9801/chromium/issues/70): Remove this
   // workaround for OpenVINO EP once the invalid external data issue is fixed.
-  if (!base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino)) {
+  if (!(base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino) ||
+        base::FeatureList::IsEnabled(mojom::features::kWebNNOrtDml))) {
     status = model_editor_.AddInitializer(name, int64_shape, operand.ByteSpan(),
                                           onnx_data_type);
   } else {
