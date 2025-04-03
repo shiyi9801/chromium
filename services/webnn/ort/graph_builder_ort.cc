@@ -1030,6 +1030,38 @@ void GraphBuilderOrt::AddUnaryOperation(const T& operation,
   model_editor_.AddNode(op_type, node, inputs, outputs);
 }
 
+void GraphBuilderOrt::AddElementWiseSignOperation(
+    const mojom::ElementWiseUnary& sign) {
+  CHECK_EQ(sign.kind, mojom::ElementWiseUnary::Kind::kSign);
+  std::string input = GetOperandNameById(sign.input_operand_id);
+  OperandDataType input_data_type =
+      GetOperand(sign.input_operand_id).descriptor.data_type();
+
+  // OV EP GPU does not support integer data type for sign operation, so insert
+  // a cast operation to convert the sign input to float data type.
+  bool need_cast = false;
+  if (input_data_type == OperandDataType::kInt8 ||
+      input_data_type == OperandDataType::kInt32 ||
+      input_data_type == OperandDataType::kInt64) {
+    input = PrependCast(input, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+    need_cast = true;
+  }
+
+  const std::string node = GenerateNextOperationName(sign.label);
+  const std::string output = GetOperandNameById(sign.output_operand_id);
+  const std::string sign_output =
+      need_cast ? GenerateNextOperandName() : output;
+  std::array<const char*, 1> inputs = {input.c_str()};
+  std::array<const char*, 1> outputs = {sign_output.c_str()};
+  model_editor_.AddNode(kOpTypeSign, node, inputs, outputs);
+
+  // Append a cast operation to convert sign output to the original data type.
+  if (need_cast) {
+    AppendCast(sign_output, output,
+               OperandTypeToONNXTensorElementDataType(input_data_type));
+  }
+}
+
 void GraphBuilderOrt::AddElementWiseUnaryOperation(
     const mojom::ElementWiseUnary& element_wise_unary) {
   switch (element_wise_unary.kind) {
@@ -1055,7 +1087,7 @@ void GraphBuilderOrt::AddElementWiseUnaryOperation(
       AddUnaryOperation(element_wise_unary, kOpTypeNeg);
       break;
     case mojom::ElementWiseUnary::Kind::kSign:
-      AddUnaryOperation(element_wise_unary, kOpTypeSign);
+      AddElementWiseSignOperation(element_wise_unary);
       break;
     case mojom::ElementWiseUnary::Kind::kSin:
       AddUnaryOperation(element_wise_unary, kOpTypeSin);
