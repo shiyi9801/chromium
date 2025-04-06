@@ -192,7 +192,8 @@ SessionOptions::Create(const mojom::CreateContextOptions::Device device_type) {
     CALL_ORT_FUNC(ort_dml_api->SessionOptionsAppendExecutionProvider_DML(
         session_options.get(), /*device_id=*/0));
     // The DML ep does not support the use of memory pattern optimizations
-    // or parallel execution in onnxruntime.
+    // or parallel execution in onnxruntime
+    // https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html#configuration-options
     CALL_ORT_FUNC(ort_api->DisableMemPattern(session_options.get()));
     CALL_ORT_FUNC(ort_api->SetSessionExecutionMode(
         session_options.get(), ExecutionMode::ORT_SEQUENTIAL));
@@ -265,7 +266,8 @@ ContextProperties ContextImplOrt::GetContextProperties() {
        /*batch_normalization_mean=*/
        {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
        /*cast_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*clamp_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       /*clamp_input=*/
+       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
        /*concat_inputs=*/
        {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
        /*conv2d_input=*/{DataTypeConstraint::kFloat16To32, {3, 8}},
