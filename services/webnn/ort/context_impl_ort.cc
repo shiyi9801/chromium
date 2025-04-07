@@ -251,7 +251,7 @@ ContextProperties ContextImplOrt::GetContextProperties(
       base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino) &&
       device_type == mojom::CreateContextOptions::Device::kGpu;
   // OV EP GPU does not support integer data type for sign operation.
-  static SupportedDataTypes kSignInputSupportedDataTypes =
+  static const SupportedDataTypes kSignInputSupportedDataTypes =
       use_ov_gpu ? DataTypeConstraint::kFloat16To32
                  : DataTypeConstraint::kAllDataTypesAtLeast8bits;
 
