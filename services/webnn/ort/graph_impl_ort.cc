@@ -5,6 +5,11 @@
 #include "services/webnn/ort/graph_impl_ort.h"
 
 #include "base/command_line.h"
+#include "base/files/file.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/notimplemented.h"
 #include "base/task/bind_post_task.h"
@@ -25,6 +30,7 @@
 #include "services/webnn/resource_task.h"
 #include "services/webnn/webnn_constant_operand.h"
 #include "services/webnn/webnn_graph_impl.h"
+#include "third_party/onnxruntime_headers/src/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h"
 
 namespace webnn::ort {
 
@@ -120,6 +126,49 @@ class GraphImplOrt::ComputeResources {
                                  input_names.data(), input_tensors.data(),
                                  input_names.size(), output_names.data(),
                                  output_names.size(), output_tensors.data())));
+  }
+
+  // Save EP Context model
+  void SaveCompiledModel(std::string key, std::string compute_resource_info) {
+    TRACE_EVENT0("gpu",
+                 "ort::GraphImplOrt::ComputeResources::SaveCompiledModel");
+
+    auto cache_dir = base::FilePath::FromASCII(
+        base::StrCat({".\\EpContextModelCache\\", key}));
+    CHECK(base::CreateDirectory(cache_dir));
+
+    std::string compiled_model_path =
+        cache_dir.AppendASCII("model.onnx").MaybeAsASCII();
+    CALL_ORT_FUNC(GetOrtApi()->SaveEpContextModel(session_->GetSession(),
+                                                  compiled_model_path.c_str()));
+
+    base::Value::Dict input_names_dict;
+    for (const auto& [operand_input, onnx_input] :
+         operand_input_name_to_onnx_input_name_) {
+      input_names_dict.Set(operand_input, onnx_input);
+    }
+    std::string input_names_str;
+    base::JSONWriter::Write(input_names_dict, &input_names_str);
+
+    base::FilePath input_names_dict_path =
+        cache_dir.AppendASCII("input_names_dict.json");
+    base::WriteFile(input_names_dict_path, input_names_str);
+
+    base::Value::Dict output_names_dict;
+    for (const auto& [operand_output, onnx_output] :
+         operand_output_name_to_onnx_output_name_) {
+      output_names_dict.Set(operand_output, onnx_output);
+    }
+    std::string output_names_str;
+    base::JSONWriter::Write(output_names_dict, &output_names_str);
+
+    base::FilePath output_names_dict_path =
+        cache_dir.AppendASCII("output_names_dict.json");
+    base::WriteFile(output_names_dict_path, output_names_str);
+
+    base::FilePath compute_resource_info_path =
+        cache_dir.AppendASCII("compute_resource_info.txt");
+    base::WriteFile(compute_resource_info_path, compute_resource_info);
   }
 
  private:
@@ -248,6 +297,142 @@ void GraphImplOrt::DidCreateAndBuild(
       std::move(result.value()), static_cast<ContextImplOrt*>(context.get()))));
 }
 
+// static
+void GraphImplOrt::LoadAndBuild(
+    mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+    std::string key,
+    ContextImplOrt* context,
+    WebNNContextImpl::LoadGraphImplCallback callback) {
+  ScopedTrace scoped_trace("GraphImplOrt::LoadAndBuild");
+
+  auto wrapped_callback = base::BindPostTaskToCurrentDefault(
+      base::BindOnce(&GraphImplOrt::DidLoadAndBuild, std::move(receiver),
+                     context->AsWeakPtr(), std::move(callback)));
+
+  base::ThreadPool::PostTask(
+      FROM_HERE,
+      {base::TaskPriority::USER_BLOCKING,
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN, base::MayBlock()},
+      base::BindOnce(&GraphImplOrt::LoadAndBuildOnBackgroundThread,
+                     std::move(key), context->session_options(),
+                     std::move(wrapped_callback), std::move(scoped_trace)));
+}
+
+// static
+void GraphImplOrt::LoadAndBuildOnBackgroundThread(
+    std::string key,
+    scoped_refptr<SessionOptions> session_options,
+    base::OnceCallback<
+        void(ComputeResourceInfo compute_resource_info,
+             base::expected<std::unique_ptr<GraphImplOrt::ComputeResources>,
+                            mojom::ErrorPtr>)> callback,
+    ScopedTrace scoped_trace) {
+  scoped_trace.AddStep("Create Env");
+
+  const OrtApi* ort_api = GetOrtApi();
+  ScopedOrtEnv env;
+  CHECK(IsSuccess(ort_api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "test",
+                                     ScopedOrtEnv::Receiver(env).get())));
+
+  scoped_trace.AddStep("Load compiled model");
+
+  auto cache_dir = base::FilePath::FromASCII(
+      base::StrCat({".\\EpContextModelCache\\", key}));
+  std::wstring compiled_model_path =
+      cache_dir.AppendASCII("model.onnx").value();
+
+  ScopedOrtSession session;
+  // disable EP context
+  CHECK(IsSuccess(ort_api->AddSessionConfigEntry(
+    session_options->get(), kOrtSessionOptionEpContextEnable,
+    /*config_value=*/"0")));
+  CHECK(IsSuccess(ort_api->CreateSession(
+      env.get(), compiled_model_path.c_str(), session_options->get(),
+      ScopedOrtSession::Receiver(session).get())));
+
+  scoped_trace.AddStep("Get compute resource info");
+
+  base::FilePath input_names_dict_path =
+      cache_dir.AppendASCII("input_names_dict.json");
+  std::string input_names_str;
+  base::ReadFileToString(input_names_dict_path, &input_names_str);
+  base::Value::Dict input_names_dict =
+      base::JSONReader::ReadDict(input_names_str).value();
+
+  base::flat_map<std::string, std::string>
+      operand_input_name_to_onnx_input_name;
+  for (auto current = input_names_dict.begin();
+       current != input_names_dict.end(); ++current) {
+    operand_input_name_to_onnx_input_name.emplace(current->first,
+                                                  current->second.GetString());
+  }
+
+  base::FilePath output_names_dict_path =
+      cache_dir.AppendASCII("output_names_dict.json");
+  std::string output_names_str;
+  base::ReadFileToString(output_names_dict_path, &output_names_str);
+  base::Value::Dict output_names_dict =
+      base::JSONReader::ReadDict(output_names_str).value();
+
+  base::flat_map<std::string, std::string>
+      operand_output_name_to_onnx_output_name;
+  for (auto current = output_names_dict.begin();
+       current != output_names_dict.end(); ++current) {
+    operand_output_name_to_onnx_output_name.emplace(
+        current->first, current->second.GetString());
+  }
+
+  base::FilePath compute_resource_info_path =
+      cache_dir.AppendASCII("compute_resource_info.txt");
+  std::string compute_resource_info_str;
+  base::ReadFileToString(compute_resource_info_path,
+                         &compute_resource_info_str);
+
+  auto compute_resource_info =
+      ComputeResourceInfo::ParseFromString(compute_resource_info_str);
+
+  scoped_trace.AddStep("Create compute resources");
+
+  auto compute_session =
+      base::WrapUnique(new Session(std::move(env), std::move(session),
+                                   std::vector<base::HeapArray<uint8_t>>{}));
+
+  std::move(callback).Run(
+      std::move(compute_resource_info),
+      base::WrapUnique(new GraphImplOrt::ComputeResources(
+          std::move(compute_session),
+          std::move(operand_input_name_to_onnx_input_name),
+          std::move(operand_output_name_to_onnx_output_name))));
+}
+
+// static
+void GraphImplOrt::DidLoadAndBuild(
+    mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+    base::WeakPtr<WebNNContextImpl> context,
+    WebNNContextImpl::LoadGraphImplCallback callback,
+    ComputeResourceInfo compute_resource_info,
+    base::expected<std::unique_ptr<GraphImplOrt::ComputeResources>,
+                   mojom::ErrorPtr> result) {
+  //   if (!result.has_value()) {
+  //     std::move(callback).Run(base::unexpected(std::move(result.error())));
+  //     return;
+  //   }
+
+  //   if (!context) {
+  //     std::move(callback).Run(base::unexpected(mojom::Error::New(
+  //         mojom::Error::Code::kUnknownError, "Context was destroyed.")));
+  //     return;
+  //   }
+
+  std::move(callback).Run(
+      base::WrapUnique(new GraphImplOrt(
+          std::move(receiver), std::move(compute_resource_info),
+          std::move(result.value()),
+          static_cast<ContextImplOrt*>(context.get()))),
+      compute_resource_info.input_names_to_descriptors,
+      compute_resource_info.output_names_to_descriptors);
+}
+
 GraphImplOrt::~GraphImplOrt() = default;
 
 GraphImplOrt::GraphImplOrt(
@@ -338,6 +523,46 @@ void GraphImplOrt::DispatchImpl(
           },
           compute_resources_state_, std::move(named_input_buffer_states),
           std::move(named_output_buffer_states)));
+
+  task->Enqueue();
+}
+
+void GraphImplOrt::SaveGraphImpl(std::string_view key) {
+  TRACE_EVENT0("gpu", "ort::GraphImplOrt::SaveGraphImpl");
+
+  std::vector<scoped_refptr<QueueableResourceStateBase>> exclusive_resources;
+  exclusive_resources.reserve(1);
+  exclusive_resources.push_back(compute_resources_state_);
+
+  std::string compute_resource_info;
+  this->compute_resource_info().SerializeToString(compute_resource_info);
+
+  auto task = base::MakeRefCounted<ResourceTask>(
+      std::vector<scoped_refptr<QueueableResourceStateBase>>{},
+      std::move(exclusive_resources),
+      base::BindOnce(
+          [](scoped_refptr<QueueableResourceState<ComputeResources>>
+                 compute_resources_state,
+             std::string key, std::string compute_resource_info,
+             base::OnceClosure completion_closure) {
+            ComputeResources* raw_compute_resources =
+                compute_resources_state->GetExclusivelyLockedResource();
+
+            // Compute tasks can take a significant amount of time, use the
+            // thread pool to avoid blocking the main thread.
+            base::ThreadPool::PostTaskAndReply(
+                FROM_HERE,
+                {base::TaskPriority::USER_BLOCKING,
+                 base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
+                 base::MayBlock()},
+                base::BindOnce(&ComputeResources::SaveCompiledModel,
+                               base::Unretained(raw_compute_resources),
+                               std::move(key),
+                               std::move(compute_resource_info)),
+                std::move(completion_closure));
+          },
+          compute_resources_state_, std::string(key),
+          std::move(compute_resource_info)));
 
   task->Enqueue();
 }

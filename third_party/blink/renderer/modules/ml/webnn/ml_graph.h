@@ -49,6 +49,14 @@ class MODULES_EXPORT MLGraph : public ScriptWrappable {
           NamedOperandDescriptors output_constraints,
           base::PassKey<MLGraphBuilder> pass_key);
 
+  MLGraph(ExecutionContext* execution_context,
+          MLContext* context,
+          mojo::PendingAssociatedRemote<webnn::mojom::blink::WebNNGraph>
+              pending_graph_remote,
+          NamedOperandDescriptors input_constraints,
+          NamedOperandDescriptors output_constraints,
+          base::PassKey<MLContext> pass_key);
+
   MLGraph(const MLGraph&) = delete;
   MLGraph& operator=(const MLGraph&) = delete;
 
@@ -71,6 +79,10 @@ class MODULES_EXPORT MLGraph : public ScriptWrappable {
                 const MLNamedTensors& inputs,
                 const MLNamedTensors& outputs,
                 ExceptionState& exception_state);
+
+  void SaveGraph(webnn::ScopedTrace scoped_trace,
+                 String key,
+                 ExceptionState& exception_state);
 
   const MLContext* Context() const;
 

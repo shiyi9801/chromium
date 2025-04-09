@@ -9,6 +9,7 @@ import "services/webnn/public/mojom/webnn_tensor.mojom";
 import "services/webnn/public/mojom/webnn_error.mojom";
 import "services/webnn/public/mojom/webnn_graph_builder.mojom";
 import "third_party/blink/public/mojom/tokens/tokens.mojom";
+import "services/webnn/public/mojom/webnn_graph.mojom";
 
 // Represents a successful call to `WebNNContext::CreateTensor()`.
 struct CreateTensorSuccess {
@@ -27,6 +28,17 @@ union CreateTensorResult {
   Error error;
 };
 
+struct LoadGraphSuccess {
+  pending_associated_remote<WebNNGraph> graph_remote;
+  map<string, OperandDescriptor> input_constraints;
+  map<string, OperandDescriptor> output_constraints;
+};
+
+union LoadGraphResult {
+  LoadGraphSuccess success;
+  Error error;
+};
+
 // Represents the `MLContext` object in the WebIDL definition that is a global
 // state of neural network compute workload and execution processes. This
 // interface runs in the GPU process and is called from the renderer process.
@@ -39,4 +51,6 @@ interface WebNNContext {
   // creating platform specific tensors, the WebNN tensor will be validated and
   // created. This method guarantees memory allocation on the device.
   CreateTensor(TensorInfo tensor_info) => (CreateTensorResult result);
+
+  LoadGraph(string key) => (LoadGraphResult result);
 };

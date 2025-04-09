@@ -133,6 +133,8 @@ class API_AVAILABLE(macos(14.0)) GraphImplCoreml final : public WebNNGraphImpl {
       const base::flat_map<std::string_view, WebNNTensorImpl*>& named_outputs)
       override;
 
+  void SaveGraphImpl(std::string_view key) override;
+
  private:
   class ComputeResources;
 

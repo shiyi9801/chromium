@@ -7129,4 +7129,9 @@ void GraphImplDml::OnDispatchComplete(
     graph_resources_ = std::move(graph_resources);
   }
 }
+
+void GraphImplDml::SaveGraphImpl(std::string_view key) {
+  NOTIMPLEMENTED();
+}
+
 }  // namespace webnn::dml

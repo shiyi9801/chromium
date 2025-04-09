@@ -55,4 +55,11 @@ void ContextImplCoreml::CreateTensorImpl(
                                                    std::move(tensor_info)));
 }
 
+void ContextImplCoreml::LoadGraphImpl(
+    mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote,
+    std::string key,
+    LoadGraphImplCallback callback) {
+  NOTIMPLEMENTED();
+}
+
 }  // namespace webnn::coreml

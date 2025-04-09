@@ -45,6 +45,11 @@ class ContextImplTflite final : public WebNNContextImpl {
       mojom::TensorInfoPtr tensor_info,
       CreateTensorImplCallback callback) override;
 
+  void LoadGraphImpl(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      LoadGraphImplCallback callback) override;
+
   base::WeakPtrFactory<ContextImplTflite> weak_factory_{this};
 };
 

@@ -137,6 +137,7 @@ void MLContext::Trace(Visitor* visitor) const {
   visitor->Trace(lost_property_);
   visitor->Trace(context_remote_);
   visitor->Trace(pending_resolvers_);
+  visitor->Trace(pending_graph_resolvers_);
   visitor->Trace(graphs_);
   visitor->Trace(graph_builders_);
   visitor->Trace(tensors_);
@@ -213,6 +214,12 @@ void MLContext::OnLost(uint32_t custom_reason, const std::string& description) {
                                      "Context is lost.");
   }
   pending_resolvers_.clear();
+
+  for (const auto& resolver : pending_graph_resolvers_) {
+    resolver->RejectWithDOMException(DOMExceptionCode::kInvalidStateError,
+                                     "Context is lost.");
+  }
+  pending_graph_resolvers_.clear();
 }
 
 const MLOpSupportLimits* MLContext::opSupportLimits(ScriptState* script_state) {
@@ -1162,6 +1169,87 @@ void MLContext::dispatch(ScriptState* script_state,
 
   return graph->Dispatch(std::move(scoped_trace), inputs, outputs,
                          exception_state);
+}
+
+void MLContext::saveGraph(ScriptState* script_state,
+                          String key,
+                          MLGraph* graph,
+                          ExceptionState& exception_state) {
+  webnn::ScopedTrace scoped_trace("MLContext::saveGraph");
+  if (!script_state->ContextIsValid()) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "Invalid script state");
+    return;
+  }
+  if (graph->Context() != this) {
+    exception_state.ThrowTypeError(
+        "The graph isn't built within this context.");
+    return;
+  }
+
+  graph->SaveGraph(std::move(scoped_trace), std::move(key), exception_state);
+}
+
+ScriptPromise<MLGraph> MLContext::loadGraph(ScriptState* script_state,
+                                            String key,
+                                            ExceptionState& exception_state) {
+  webnn::ScopedTrace scoped_trace("MLContext::loadGraph");
+  if (!script_state->ContextIsValid()) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "Invalid script state");
+    return EmptyPromise();
+  }
+
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<MLGraph>>(
+      script_state, exception_state.GetContext());
+  pending_graph_resolvers_.insert(resolver);
+
+  context_remote_->LoadGraph(
+      std::move(key),
+      WTF::BindOnce(&MLContext::DidLoadGraph, WrapPersistent(this),
+                    std::move(scoped_trace), WrapPersistent(resolver)));
+
+  return resolver->Promise();
+}
+
+void MLContext::DidLoadGraph(webnn::ScopedTrace scoped_trace,
+                             ScriptPromiseResolver<blink::MLGraph>* resolver,
+                             webnn::mojom::blink::LoadGraphResultPtr result) {
+  scoped_trace.AddStep("MLContext::DidLoadGraph");
+
+  pending_graph_resolvers_.erase(resolver);
+
+  ScriptState* script_state = resolver->GetScriptState();
+  if (!script_state->ContextIsValid()) {
+    return;
+  }
+
+  if (result->is_error()) {
+    const auto& load_graph_error = result->get_error();
+    resolver->RejectWithDOMException(
+        WebNNErrorCodeToDOMExceptionCode(load_graph_error->code),
+        load_graph_error->message);
+    return;
+  }
+
+  auto& success = result->get_success();
+
+  MLGraph::NamedOperandDescriptors input_constraints;
+  for (const auto& constraint : success->input_constraints) {
+    input_constraints.insert(constraint.key, constraint.value);
+  }
+  MLGraph::NamedOperandDescriptors output_constraints;
+  for (const auto& constraint : success->output_constraints) {
+    output_constraints.insert(constraint.key, constraint.value);
+  }
+
+  auto* graph = MakeGarbageCollected<MLGraph>(
+      resolver->GetExecutionContext(), this, std::move(success->graph_remote),
+      std::move(input_constraints), std::move(output_constraints),
+      base::PassKey<MLContext>());
+  graphs_.insert(graph);
+
+  resolver->Resolve(graph);
 }
 
 void MLContext::DidCreateWebNNTensor(

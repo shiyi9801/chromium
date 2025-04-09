@@ -47,6 +47,12 @@ class GraphImplOrt final : public WebNNGraphImpl {
       ContextImplOrt* context,
       WebNNContextImpl::CreateGraphImplCallback callback);
 
+  static void LoadAndBuild(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      ContextImplOrt* context,
+      WebNNContextImpl::LoadGraphImplCallback callback);
+
   GraphImplOrt(const GraphImplOrt&) = delete;
   GraphImplOrt& operator=(const GraphImplOrt&) = delete;
   ~GraphImplOrt() override;
@@ -76,12 +82,31 @@ class GraphImplOrt final : public WebNNGraphImpl {
       base::expected<std::unique_ptr<ComputeResources>, mojom::ErrorPtr>
           result);
 
+  static void LoadAndBuildOnBackgroundThread(
+      std::string key,
+      scoped_refptr<SessionOptions> session_options,
+      base::OnceCallback<
+          void(ComputeResourceInfo compute_resource_info,
+               base::expected<std::unique_ptr<GraphImplOrt::ComputeResources>,
+                              mojom::ErrorPtr>)> callback,
+      ScopedTrace scoped_trace);
+
+  static void DidLoadAndBuild(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      base::WeakPtr<WebNNContextImpl> context,
+      WebNNContextImpl::LoadGraphImplCallback callback,
+      ComputeResourceInfo compute_resource_info,
+      base::expected<std::unique_ptr<ComputeResources>, mojom::ErrorPtr>
+          result);
+
   // Execute the compiled platform graph asynchronously. The inputs were
   // validated in base class so we can use them to compute directly.
   void DispatchImpl(const base::flat_map<std::string_view, WebNNTensorImpl*>&
                         named_input_tensors,
                     const base::flat_map<std::string_view, WebNNTensorImpl*>&
                         named_output_tensors) override;
+
+  void SaveGraphImpl(std::string_view key) override;
 
   // std::map<uint64_t, GraphBuilderOrt::OperandInfo> operand_infos_;
   scoped_refptr<QueueableResourceState<ComputeResources>>

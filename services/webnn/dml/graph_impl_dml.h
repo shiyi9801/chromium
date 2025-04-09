@@ -287,6 +287,8 @@ class GraphImplDml final : public WebNNGraphImpl {
       const base::flat_map<std::string_view, WebNNTensorImpl*>& named_outputs)
       override;
 
+  void SaveGraphImpl(std::string_view key) override;
+
   // The persistent resource is allocated after the compilation work is
   // completed for the graph initialization and will be used for the following
   // graph executions. It could be nullptr which means it isn't required by the

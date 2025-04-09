@@ -131,6 +131,25 @@ MLGraph::MLGraph(ExecutionContext* execution_context,
       WTF::BindOnce(&MLGraph::OnConnectionError, WrapWeakPersistent(this)));
 }
 
+MLGraph::MLGraph(ExecutionContext* execution_context,
+                 MLContext* context,
+                 mojo::PendingAssociatedRemote<webnn::mojom::blink::WebNNGraph>
+                     pending_graph_remote,
+                 NamedOperandDescriptors input_constraints,
+                 NamedOperandDescriptors output_constraints,
+                 base::PassKey<MLContext> /*pass_key*/)
+    : input_constraints_(std::move(input_constraints)),
+      output_constraints_(std::move(output_constraints)),
+      ml_context_(context),
+      remote_graph_(execution_context) {
+  // Bind the end point of `WebNNGraph` mojo interface in the blink side.
+  remote_graph_.Bind(
+      std::move(pending_graph_remote),
+      execution_context->GetTaskRunner(TaskType::kMachineLearning));
+  remote_graph_.set_disconnect_handler(
+      WTF::BindOnce(&MLGraph::OnConnectionError, WrapWeakPersistent(this)));
+}
+
 MLGraph::~MLGraph() = default;
 
 void MLGraph::Trace(Visitor* visitor) const {
@@ -201,6 +220,19 @@ void MLGraph::Dispatch(webnn::ScopedTrace scoped_trace,
   }
 
   remote_graph_->Dispatch(std::move(mojo_inputs), std::move(mojo_outputs));
+}
+
+void MLGraph::SaveGraph(webnn::ScopedTrace scoped_trace,
+                        String key,
+                        ExceptionState& exception_state) {
+  if (!remote_graph_.is_bound()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "Graph has been destroyed or context is lost.");
+    return;
+  }
+
+  remote_graph_->SaveGraph(std::move(key));
 }
 
 const MLContext* MLGraph::Context() const {

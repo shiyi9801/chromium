@@ -51,4 +51,11 @@ void ContextImplTflite::CreateTensorImpl(
                                                    std::move(tensor_info)));
 }
 
+void ContextImplTflite::LoadGraphImpl(
+    mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+    std::string key,
+    LoadGraphImplCallback callback) {
+  NOTIMPLEMENTED();
+}
+
 }  // namespace webnn::tflite
