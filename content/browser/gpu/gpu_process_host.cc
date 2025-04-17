@@ -330,7 +330,6 @@ static const char* const kSwitchNames[] = {
 #endif
 #if BUILDFLAG(WEBNN_USE_ORT)
     switches::kWebNNOrtDumpModel,
-    switches::kWebNNOrtApplyMatMulNBitsFusion,
     switches::kWebNNOrtUseOVModelCache,
     switches::kWebNNOrtLoggingLevel,
 #endif

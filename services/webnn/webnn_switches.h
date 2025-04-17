@@ -33,11 +33,6 @@ inline constexpr char kWebNNTfliteDumpModel[] = "webnn-tflite-dump-model";
 // Usage: --no-sandbox --webnn-ort-dump-model=./OnnxModels
 inline constexpr char kWebNNOrtDumpModel[] = "webnn-ort-dump-model";
 
-// Apply fusion of DQ + matmul into matmulnbits specified by
-// --webnn-ort-apply-matmulnbits-fusion
-inline constexpr char kWebNNOrtApplyMatMulNBitsFusion[] =
-    "webnn-ort-apply-matmulnbits-fusion";
-
 // Enable model caching for OV EP with cache folder specified by
 // --webnn-ort-use-ov-model-cache. Note, the folder needs to be accessible from
 // the GPU process sandbox or --no-sandbox must be used. Usage: --no-sandbox

@@ -28,6 +28,12 @@ namespace webnn::ort {
 
 namespace {
 
+// The feature flag allows us to disable the graph fusion if it causes
+// something wrong.
+BASE_FEATURE(kApplyMatMulNBitsFusion,
+             "ApplyMatMulNBitsFusion",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
 constexpr char kOpTypeArgMax[] = "ArgMax";
 constexpr char kOpTypeArgMin[] = "ArgMin";
 constexpr char kOpTypeBatchNormalization[] = "BatchNormalization";
@@ -702,33 +708,27 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
   // If it's disabled, just return empty 'GraphFusionInfo' object which means no
   // graph fusion will be applied since currently we only enable matmulnbits
   // fusion.
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kWebNNOrtApplyMatMulNBitsFusion)) {
+  if (!base::FeatureList::IsEnabled(kApplyMatMulNBitsFusion)) {
     return GraphFusionInfo();
   }
 
   GraphFusionInfo graph_fusion_info;
 
-  // A map of all matmul operations in `mojom::GraphInfo` using matmul's input
-  // operand id as the key.
+  // A map of all matmul operations in `mojom::GraphInfo` using matmul's 2nd
+  // input operand id as the key.
   std::map<uint64_t, const mojom::Operation*> input_id_to_matmul_map;
 
-  // A map of all transpose operations in `mojom::GraphInfo` using matmul's 2nd
-  // input operand id as the key.
-  std::map<uint64_t, const mojom::Operation*>
-      input_id_to_pre_matmul_transpose_map;
+  // A map of all transpose operations in `mojom::GraphInfo` whose output is
+  // consumed by a matmul operation, using the input operand id of the transpose
+  // operation as the key.
+  std::map<uint64_t, const mojom::Operation*> input_id_to_transpose_matmul_map;
 
-  // A map of all reshape operations in `mojom::GraphInfo` using transpose's
-  // input operand id as the key and this transpose must be contained in
-  // `input_id_to_pre_matmul_transpose_map`.
+  // A map of all reshape operations in `mojom::GraphInfo` whose output is
+  // consumed by a transpose operation and this transpose must be contained in
+  // `input_id_to_pre_matmul_transpose_map`. Using the input operand id of the
+  // reshaoe as the key.
   std::map<uint64_t, const mojom::Operation*>
-      input_id_to_pre_matmul_transpose_reshape_map;
-
-  // A map of all dequantizeLinear operations in `mojom::GraphInfo` using
-  // reshape's input operand id as the key and this reshape must be
-  // contained in `input_id_to_pre_matmul_transpose_reshape_map`.
-  std::map<uint64_t, const mojom::Operation*>
-      input_id_to_pre_matmul_transpose_reshape_dq_map;
+      input_id_to_reshape_transpose_matmul_map;
 
   // A map to record how many times each operand id is used as one
   // operation's input edge or the graph's output edge.
@@ -742,7 +742,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
   }
 
   // Iterate from the end of operations instead from the beginning, so we
-  // can easily get the total use count of a fusible base operation's output
+  // can easily get the total use count of a fusible operation's output
   // edge before visiting it.
   OperationConnectivity operation_connectivity;
   for (size_t operation_index = graph_info.operations.size();
@@ -756,12 +756,12 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
       ++operand_id_to_use_count_map[input_id];
     }
 
-    // Try to find dequantizeLinear that can be fused into following matmul
+    // Try to find the operations that can be fused into following matmul
     // operations.
     switch (operation->which()) {
       case mojom::Operation::Tag::kMatmul: {
-        // Map matmul's inputs to operation, so the following algorithm can find
-        // a dequantizeLinear whose output is consumed by a matmul.
+        // Map matmul's 2nd inputs to operation, so the following algorithm can
+        // find a dequantizeLinear whose output is consumed by a matmul.
         CHECK_EQ(operation_connectivity.input_ids.size(), 2U);
         // We needn't check the result of `try_emplace` here, because if the key
         // `input_id` is already in container, there must be more than 1 output
@@ -776,22 +776,20 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         // transpose's output must be the 2nd input of a matmul.
         CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
         uint64_t output_id = operation_connectivity.output_ids[0];
-        // MatMul has only 1 transpose input and the tranpose must have 1 output
-        // edge and not be a graph output
+        // The matmul has only 1 transpose input and the tranpose must have 1
+        // output edge and not be a graph output
         if (!input_id_to_matmul_map.contains(output_id) ||
             operand_id_to_use_count_map[output_id] != 1) {
           break;
         }
-        input_id_to_pre_matmul_transpose_map.try_emplace(
+        input_id_to_transpose_matmul_map.try_emplace(
             operation_connectivity.input_ids[0], operation.get());
         break;
       }
       case mojom::Operation::Tag::kReshape: {
         CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
         uint64_t output_id = operation_connectivity.output_ids[0];
-        if ((!input_id_to_pre_matmul_transpose_map.contains(output_id) &&
-             !input_id_to_pre_matmul_transpose_reshape_dq_map.contains(
-                 output_id)) ||
+        if (!input_id_to_transpose_matmul_map.contains(output_id) ||
             operand_id_to_use_count_map[output_id] != 1) {
           break;
         }
@@ -800,11 +798,62 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         //  input_a    transpose
         //     \       /
         //        matmul
-        if (input_id_to_pre_matmul_transpose_map.contains(output_id)) {
-          input_id_to_pre_matmul_transpose_reshape_map.try_emplace(
-              operation_connectivity.input_ids[0], operation.get());
+        input_id_to_reshape_transpose_matmul_map.try_emplace(
+            operation_connectivity.input_ids[0], operation.get());
+        break;
+      }
+      case mojom::Operation::Tag::kDequantizeLinear: {
+        CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
+        uint64_t output_id = operation_connectivity.output_ids[0];
+        if (!input_id_to_reshape_transpose_matmul_map.contains(output_id) ||
+            operand_id_to_use_count_map[output_id] != 1) {
           break;
         }
+        const mojom::DequantizeLinearPtr& dequantize_linear =
+            operation->get_dequantize_linear();
+        // Input, scale, zero point must be constants.
+        if (!graph_info.constant_operand_ids_to_handles.contains(
+                dequantize_linear->input_operand_id) ||
+            !graph_info.constant_operand_ids_to_handles.contains(
+                dequantize_linear->scale_operand_id) ||
+            !graph_info.constant_operand_ids_to_handles.contains(
+                dequantize_linear->zero_point_operand_id)) {
+          break;
+        }
+        const mojom::OperandPtr& input_operand =
+            graph_info.id_to_operand_map.at(
+                dequantize_linear->input_operand_id);
+        const mojom::OperandPtr& scale_operand =
+            graph_info.id_to_operand_map.at(
+                dequantize_linear->scale_operand_id);
+
+        // Scales/output types must be float or float16.
+        auto scale_data_type = scale_operand->descriptor.data_type();
+        if (scale_data_type != OperandDataType::kFloat32 &&
+            scale_data_type != OperandDataType::kFloat16) {
+          break;
+        }
+
+        // Input/zeroPoints types must be int4/uint4,
+        auto input_data_type = input_operand->descriptor.data_type();
+        if (input_data_type != OperandDataType::kInt4 &&
+            input_data_type != OperandDataType::kUint4) {
+          break;
+        }
+
+        uint32_t input_rank = input_operand->descriptor.shape().size();
+        uint32_t scale_rank = input_operand->descriptor.shape().size();
+        // Input, scale and zero points must have the rank 3
+        if (input_rank != 3 || scale_rank != 3) {
+          break;
+        }
+
+        // Block_size must be 2's power and >= 16.
+        uint32_t block_size = input_operand->descriptor.shape()[2];
+        if (block_size < 16 || ((block_size - 1) & block_size)) {
+          break;
+        }
+
         // Matmulnbits fusion pattern:
         //            scale
         //              |
@@ -817,52 +866,6 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         //  input_a    transpose
         //     \       /
         //        matmul
-        if (input_id_to_pre_matmul_transpose_reshape_dq_map.contains(
-                output_id)) {
-          // Add reshape_2
-          graph_fusion_info.fusible_operations_set.insert(operation.get());
-          graph_fusion_info.output_id_to_fusible_matmulnbits_map[output_id] =
-              operation.get();
-          // Add dequantizeLinear
-          const mojom::Operation* dq =
-              input_id_to_pre_matmul_transpose_reshape_dq_map[output_id];
-          graph_fusion_info.fusible_operations_set.insert(dq);
-          graph_fusion_info.output_id_to_fusible_matmulnbits_map
-              [dq->get_dequantize_linear()->output_operand_id] = dq;
-          // Add reshape_1
-          const mojom::Operation* reshape =
-              input_id_to_pre_matmul_transpose_reshape_map
-                  [dq->get_dequantize_linear()->output_operand_id];
-          graph_fusion_info.fusible_operations_set.insert(reshape);
-          graph_fusion_info.output_id_to_fusible_matmulnbits_map
-              [reshape->get_reshape()->output_operand_id] = reshape;
-          // Add transpose
-          const mojom::Operation* transpose =
-              input_id_to_pre_matmul_transpose_map[reshape->get_reshape()
-                                                       ->output_operand_id];
-          graph_fusion_info.fusible_operations_set.insert(transpose);
-          graph_fusion_info.output_id_to_fusible_matmulnbits_map
-              [transpose->get_transpose()->output_operand_id] = transpose;
-        }
-
-        break;
-      }
-      case mojom::Operation::Tag::kDequantizeLinear: {
-        CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
-        uint64_t output_id = operation_connectivity.output_ids[0];
-        if (!input_id_to_pre_matmul_transpose_reshape_map.contains(output_id) ||
-            operand_id_to_use_count_map[output_id] != 1) {
-          break;
-        }
-        const mojom::DequantizeLinearPtr& dequantize_linear =
-            operation->get_dequantize_linear();
-        // Input, zero point must be constants.
-        if (!graph_info.constant_operand_ids_to_handles.contains(
-                dequantize_linear->input_operand_id) ||
-            !graph_info.constant_operand_ids_to_handles.contains(
-                dequantize_linear->zero_point_operand_id)) {
-          break;
-        }
         // If scale is a constant, the reshape_2 will be folded into scale by
         // constant_folding in WebNN blink side. The fusion patter will looks
         // like this:
@@ -877,28 +880,23 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         //        matmul
         if (graph_info.constant_operand_ids_to_handles.contains(
                 dequantize_linear->scale_operand_id)) {
-          // Add dequantizeLinear
+          // Add dequantizeLinear.
           graph_fusion_info.fusible_operations_set.insert(operation.get());
           graph_fusion_info.output_id_to_fusible_matmulnbits_map[output_id] =
               operation.get();
-          // Add reshape
+          // Add reshape.
           const mojom::Operation* reshape =
-              input_id_to_pre_matmul_transpose_reshape_map[output_id];
+              input_id_to_reshape_transpose_matmul_map[output_id];
           graph_fusion_info.fusible_operations_set.insert(reshape);
           graph_fusion_info.output_id_to_fusible_matmulnbits_map
               [reshape->get_reshape()->output_operand_id] = reshape;
-          // Add transpose
+          // Add transpose.
           const mojom::Operation* transpose =
-              input_id_to_pre_matmul_transpose_map[reshape->get_reshape()
-                                                       ->output_operand_id];
+              input_id_to_transpose_matmul_map[reshape->get_reshape()
+                                                   ->output_operand_id];
           graph_fusion_info.fusible_operations_set.insert(transpose);
           graph_fusion_info.output_id_to_fusible_matmulnbits_map
               [transpose->get_transpose()->output_operand_id] = transpose;
-        } else {
-          // If the 2nd input of dequantizeLinear is not a constant, we need to
-          // do more match work.
-          input_id_to_pre_matmul_transpose_reshape_dq_map.try_emplace(
-              operation_connectivity.input_ids[1], operation.get());
         }
         break;
       }
@@ -3450,10 +3448,6 @@ GraphBuilderOrt::AddMatMulOperation(
 
     CHECK(output_id_to_fusible_matmulnbits_map.contains(
         fusible_reshape_input_id));
-    uint64_t fusible_dequantize_linear_input_id =
-        output_id_to_fusible_matmulnbits_map.at(fusible_reshape_input_id)
-            ->get_dequantize_linear()
-            ->input_operand_id;
 
     const mojom::DequantizeLinearPtr& dequantize_linear =
         output_id_to_fusible_matmulnbits_map.at(fusible_reshape_input_id)
@@ -3463,15 +3457,16 @@ GraphBuilderOrt::AddMatMulOperation(
     const std::vector<uint32_t>& input_b_shape =
         input_b_operand->descriptor.shape();
 
-    uint32_t N = input_b_shape[0];
+    uint32_t input_feature_size = input_b_shape[0];
     uint32_t quant_num = input_b_shape[1];
     uint32_t blob_bytes = input_b_shape[2] / 2;
     uint32_t block_size = input_b_shape[2];
-    uint32_t K = quant_num * block_size;
+    uint32_t output_feature_size = quant_num * block_size;
 
     const WebNNConstantOperand& input_constant =
         *constant_operands_.at(dequantize_linear->input_operand_id);
-    std::vector<uint32_t> new_input_buffer_shape = {N, quant_num, blob_bytes};
+    std::vector<uint32_t> new_input_buffer_shape = {input_feature_size,
+                                                    quant_num, blob_bytes};
 
     ASSIGN_OR_RETURN(input_b_name,
                      CreateInitializer<uint8_t>(new_input_buffer_shape,
@@ -3479,25 +3474,18 @@ GraphBuilderOrt::AddMatMulOperation(
 
     const WebNNConstantOperand& zero_point_constant =
         *constant_operands_.at(dequantize_linear->zero_point_operand_id);
-    std::vector<uint32_t> new_zero_point_buffer_shape = {N *
+    std::vector<uint32_t> new_zero_point_buffer_shape = {input_feature_size *
                                                          ((quant_num + 1) / 2)};
     ASSIGN_OR_RETURN(
         std::string zero_point_name,
         CreateInitializer<uint8_t>(new_zero_point_buffer_shape,
                                    zero_point_constant.ByteSpan()));
 
-    std::string scale_name;
-    if (output_id_to_fusible_matmulnbits_map.contains(
-            fusible_dequantize_linear_input_id)) {
-      const mojom::ReshapePtr& reshape =
-          output_id_to_fusible_matmulnbits_map
-              .at(fusible_dequantize_linear_input_id)
-              ->get_reshape();
-      scale_name = GetOperandNameById(reshape->input_operand_id);
-    } else {
-      scale_name = GetOperandNameById(dequantize_linear->scale_operand_id);
-      ASSIGN_OR_RETURN(scale_name, PrependReshape(scale_name, {N * quant_num}));
-    }
+    std::string scale_name =
+        GetOperandNameById(dequantize_linear->scale_operand_id);
+    ASSIGN_OR_RETURN(
+        scale_name,
+        PrependReshape(scale_name, {input_feature_size * quant_num}));
 
     std::array<const char*, 4> input_names = {
         input_a_name.c_str(), input_b_name.c_str(), scale_name.c_str(),
@@ -3507,9 +3495,9 @@ GraphBuilderOrt::AddMatMulOperation(
     std::vector<ScopedOrtOpAttr> attributes;
     attributes.reserve(4);
     attributes.push_back(model_editor_.CreateAttribute(
-        /*name=*/"K", base::checked_cast<int64_t>(K)));
+        /*name=*/"K", base::checked_cast<int64_t>(output_feature_size)));
     attributes.push_back(model_editor_.CreateAttribute(
-        /*name=*/"N", base::checked_cast<int64_t>(N)));
+        /*name=*/"N", base::checked_cast<int64_t>(input_feature_size)));
     attributes.push_back(model_editor_.CreateAttribute(
         /*name=*/"bits", base::checked_cast<int64_t>(4)));
     attributes.push_back(model_editor_.CreateAttribute(
@@ -3518,7 +3506,6 @@ GraphBuilderOrt::AddMatMulOperation(
                           output_names, std::move(attributes), kMSDomainName);
 
   } else {
-    LOG(ERROR) << "add matmul";
     std::array<const char*, 2> input_names = {input_a_name.c_str(),
                                               input_b_name.c_str()};
     std::array<const char*, 1> output_names = {output_name.c_str()};
