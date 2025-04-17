@@ -1,0 +1,42 @@
+// Copyright 2025 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// Message format for the MojoLPM fuzzer for the webnn service interface.
+
+syntax = "proto2";
+
+package services.webnn.proto;
+
+enum OperandDataType {
+  kFloat32 = 10;
+  kFloat16 = 1;
+  kInt32 = 2;
+  kUint32 = 3;
+  kInt64 = 4;
+  kUint64 = 5;
+  kInt8 = 6;
+  kUint8 = 7;
+  kInt4 = 8;
+  kUint4 = 9;
+}
+
+message OperandDescriptor {
+  required OperandDataType data_type = 1;
+  repeated uint32 dim = 2;
+}
+
+message OperationIds {
+  repeated uint64 id = 1;
+}
+
+message ComputeResourceInfo {
+  map<string, OperandDescriptor> input_names_to_descriptors = 1;
+  map<string, OperandDescriptor> output_names_to_descriptors = 2;
+  map<uint64, OperationIds> operand_to_dependent_operations = 3;
+}
+
+// //
+// message NameMapping {
+//   map<string, string> ori_name_to_real_name = 1;
+// }

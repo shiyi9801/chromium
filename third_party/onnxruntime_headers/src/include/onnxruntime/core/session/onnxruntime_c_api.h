@@ -4869,6 +4869,9 @@
                    _In_ const int64_t* shape, size_t shape_len,
                    ONNXTensorElementDataType type,
                    _Outptr_ OrtValue** out);
+
+  ORT_API2_STATUS(SaveEpContextModel, _Inout_ OrtSession* session,
+  _In_ const char* ep_context_path);
  };
  
  /*

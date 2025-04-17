@@ -56,6 +56,10 @@ class COMPONENT_EXPORT(WEBNN_PUBLIC_CPP) OperandDescriptor {
 
   static size_t GetBitsPerElement(OperandDataType data_type);
 
+  // Creates an invalid instance for use with Mojo deserialization (for HashMap
+  // use as EmptyValue()), which requires types to be default-constructible.
+  OperandDescriptor();
+
   // Creates an invalid instance for use with Mojo deserialization, which
   // requires types to be default-constructible.
   explicit OperandDescriptor(mojo::DefaultConstruct::Tag);

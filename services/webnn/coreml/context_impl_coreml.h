@@ -53,6 +53,11 @@ class API_AVAILABLE(macos(14.0)) ContextImplCoreml final
       mojom::TensorInfoPtr tensor_info,
       CreateTensorImplCallback callback) override;
 
+  void LoadGraphImpl(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      LoadGraphImplCallback callback) override;
+
   base::WeakPtrFactory<ContextImplCoreml> weak_factory_{this};
 };
 

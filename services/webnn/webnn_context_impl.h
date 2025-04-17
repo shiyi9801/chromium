@@ -23,6 +23,7 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/unique_associated_receiver_set.h"
 #include "services/webnn/public/cpp/context_properties.h"
+#include "services/webnn/public/mojom/operand_descriptor_mojom_traits.h"
 #include "services/webnn/public/mojom/webnn_context.mojom.h"
 #include "services/webnn/public/mojom/webnn_context_provider.mojom.h"
 #include "services/webnn/public/mojom/webnn_error.mojom-forward.h"
@@ -49,6 +50,11 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNContextImpl
 
   using CreateTensorImplCallback = base::OnceCallback<void(
       base::expected<std::unique_ptr<WebNNTensorImpl>, mojom::ErrorPtr>)>;
+
+  using LoadGraphImplCallback = base::OnceCallback<void(
+      std::unique_ptr<WebNNGraphImpl>,
+      base::flat_map<std::string, webnn::OperandDescriptor>,
+      base::flat_map<std::string, webnn::OperandDescriptor>)>;
 
   WebNNContextImpl(mojo::PendingReceiver<mojom::WebNNContext> receiver,
                    WebNNContextProviderImpl* context_provider,
@@ -141,6 +147,7 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNContextImpl
       override;
   void CreateTensor(mojom::TensorInfoPtr tensor_info,
                     CreateTensorCallback callback) override;
+  void LoadGraph(const std::string& key, LoadGraphCallback callback) override;
 
   // This method will be called by `CreateTensor()` after the tensor info is
   // validated. A backend subclass should implement this method to create and
@@ -154,6 +161,18 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNContextImpl
       CreateTensorCallback callback,
       mojo::PendingAssociatedRemote<mojom::WebNNTensor> remote,
       base::expected<std::unique_ptr<WebNNTensorImpl>, mojom::ErrorPtr> result);
+
+  virtual void LoadGraphImpl(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      LoadGraphImplCallback callback) = 0;
+
+  void DidLoadGraphImpl(
+      LoadGraphCallback callback,
+      mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote,
+      std::unique_ptr<WebNNGraphImpl> graph,
+      base::flat_map<std::string, webnn::OperandDescriptor> input_contraints,
+      base::flat_map<std::string, webnn::OperandDescriptor> output_contraints);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

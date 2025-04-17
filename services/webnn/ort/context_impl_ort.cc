@@ -495,4 +495,12 @@ void ContextImplOrt::CreateTensorImpl(
       TensorImplOrt::Create(std::move(receiver), this, std::move(tensor_info)));
 }
 
+void ContextImplOrt::LoadGraphImpl(
+    mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+    std::string key,
+    LoadGraphImplCallback callback) {
+  GraphImplOrt::LoadAndBuild(std::move(receiver), std::move(key), this,
+                             std::move(callback));
+}
+
 }  // namespace webnn::ort

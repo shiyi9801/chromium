@@ -133,6 +133,8 @@ size_t OperandDescriptor::GetBitsPerElement(OperandDataType data_type) {
   }
 }
 
+OperandDescriptor::OperandDescriptor() {}
+
 OperandDescriptor::OperandDescriptor(mojo::DefaultConstruct::Tag) {}
 
 OperandDescriptor::OperandDescriptor(OperandDataType data_type,

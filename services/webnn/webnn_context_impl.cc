@@ -122,6 +122,32 @@ void WebNNContextImpl::DidCreateWebNNTensorImpl(
   tensor_impls_.emplace(*std::move(result));
 }
 
+void WebNNContextImpl::LoadGraph(
+    const std::string& key,
+    mojom::WebNNContext::LoadGraphCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote;
+  auto receiver = remote.InitWithNewEndpointAndPassReceiver();
+  LoadGraphImpl(std::move(receiver), key,
+                base::BindOnce(&WebNNContextImpl::DidLoadGraphImpl, AsWeakPtr(),
+                               std::move(callback), std::move(remote)));
+}
+
+void WebNNContextImpl::DidLoadGraphImpl(
+    mojom::WebNNContext::LoadGraphCallback callback,
+    mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote,
+    std::unique_ptr<WebNNGraphImpl> graph,
+    base::flat_map<std::string, webnn::OperandDescriptor> input_contraints,
+    base::flat_map<std::string, webnn::OperandDescriptor> output_contraints) {
+  auto success = mojom::LoadGraphSuccess::New(std::move(remote),
+                                              std::move(input_contraints),
+                                              std::move(output_contraints));
+  std::move(callback).Run(
+      mojom::LoadGraphResult::NewSuccess(std::move(success)));
+
+  graph_impls_.emplace(std::move(graph));
+}
+
 void WebNNContextImpl::DisconnectAndDestroyWebNNTensorImpl(
     const blink::WebNNTensorToken& handle) {
   const auto it = tensor_impls_.find(handle);

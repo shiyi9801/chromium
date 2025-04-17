@@ -43,6 +43,16 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNGraphImpl
     ComputeResourceInfo(ComputeResourceInfo&&);
     ComputeResourceInfo& operator=(ComputeResourceInfo&&);
 
+    ComputeResourceInfo(base::flat_map<std::string, OperandDescriptor>
+                            input_names_to_descriptors,
+                        base::flat_map<std::string, OperandDescriptor>
+                            output_names_to_descriptors,
+                        base::flat_map<uint64_t, base::flat_set<size_t>>
+                            operand_to_dependent_operations);
+
+    bool SerializeToString(std::string& str) const;
+    static ComputeResourceInfo ParseFromString(std::string_view str);
+
     base::flat_map<std::string, OperandDescriptor> input_names_to_descriptors;
     base::flat_map<std::string, OperandDescriptor> output_names_to_descriptors;
     base::flat_map<uint64_t, base::flat_set<size_t>>
@@ -89,6 +99,10 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNGraphImpl
   const raw_ptr<WebNNContextImpl> context_;
 
   mojo::AssociatedReceiver<mojom::WebNNGraph> receiver_;
+
+  void SaveGraph(const std::string& key) override;
+
+  virtual void SaveGraphImpl(std::string_view key) = 0;
 };
 
 }  // namespace webnn

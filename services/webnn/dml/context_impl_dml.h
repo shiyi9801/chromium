@@ -94,6 +94,11 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) ContextImplDml final
       mojom::TensorInfoPtr tensor_info,
       CreateTensorImplCallback callback) override;
 
+  void LoadGraphImpl(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      LoadGraphImplCallback callback) override;
+
   // Begins recording commands needed for context operations.
   // If recording failed, calling this function will recreate the recorder to
   // allow recording to start again.

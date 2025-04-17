@@ -55,6 +55,7 @@ component("webnn_service") {
     "//gpu/command_buffer/service:gles2",
     "//gpu/config",
     "//mojo/public/cpp/bindings",
+    "//services/webnn:webnn_proto",
     "//services/webnn/public/mojom",
   ]
 
@@ -259,4 +260,14 @@ mojolpm_fuzzer_test("webnn_graph_mojolpm_fuzzer") {
     "//services/webnn/public/mojom",
     "//third_party/libprotobuf-mutator",
   ]
+}
+
+proto_library("webnn_proto") {
+  sources = [ "compute_resource_info.proto" ]
+
+  # deps = [
+  #   "//services/webnn/public/mojom:mojom_mojolpm",
+  # ]
+
+  cc_generator_options = "lite"
 }

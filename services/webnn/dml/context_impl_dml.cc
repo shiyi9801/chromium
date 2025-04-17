@@ -944,4 +944,11 @@ void ContextImplDml::RemoveDeviceForTesting() {
   d3d12_device_5->RemoveDevice();
 }
 
+void ContextImplDml::LoadGraphImpl(
+    mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+    std::string key,
+    LoadGraphImplCallback callback) {
+  NOTIMPLEMENTED();
+}
+
 }  // namespace webnn::dml

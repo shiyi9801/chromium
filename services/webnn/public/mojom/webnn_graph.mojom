@@ -1438,4 +1438,6 @@ interface WebNNGraph {
   // data.
   Dispatch(map<string, blink.mojom.WebNNTensorToken> named_inputs,
            map<string, blink.mojom.WebNNTensorToken> named_outputs);
+
+  SaveGraph(string key);
 };

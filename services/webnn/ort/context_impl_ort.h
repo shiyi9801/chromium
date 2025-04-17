@@ -23,7 +23,7 @@ class SessionOptions final : public base::RefCountedThreadSafe<SessionOptions> {
   SessionOptions(const SessionOptions&) = delete;
   SessionOptions& operator=(const SessionOptions&) = delete;
 
-  const OrtSessionOptions* get() const { return session_options_.get(); }
+  OrtSessionOptions* get() { return session_options_.get(); }
 
  private:
   friend class base::RefCountedThreadSafe<SessionOptions>;
@@ -72,6 +72,11 @@ class ContextImplOrt final : public WebNNContextImpl {
       mojo::PendingAssociatedReceiver<mojom::WebNNTensor> receiver,
       mojom::TensorInfoPtr tensor_info,
       CreateTensorImplCallback callback) override;
+
+  void LoadGraphImpl(
+      mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
+      std::string key,
+      LoadGraphImplCallback callback) override;
 
   ScopedOrtEnv env_;
 

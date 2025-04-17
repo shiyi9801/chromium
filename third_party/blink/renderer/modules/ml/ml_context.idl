@@ -331,4 +331,16 @@ typedef record<USVString, MLTensor> MLNamedTensors;
     RuntimeEnabled=MachineLearningNeuralNetwork,
     CallWith=ScriptState
   ] MLOpSupportLimits opSupportLimits();
+
+  [
+    RuntimeEnabled=MachineLearningNeuralNetwork,
+    CallWith=ScriptState,
+    RaisesException
+  ] void saveGraph(DOMString key, MLGraph graph);
+
+  [
+    RuntimeEnabled=MachineLearningNeuralNetwork,
+    CallWith=ScriptState,
+    RaisesException
+  ] Promise<MLGraph> loadGraph(DOMString key);
 };

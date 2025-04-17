@@ -412,4 +412,8 @@ void GraphImplTflite::DispatchImpl(
   task->Enqueue();
 }
 
+void GraphImplTflite::SaveGraphImpl(std::string_view key) {
+  NOTIMPLEMENTED();
+}
+
 }  // namespace webnn::tflite

@@ -95,6 +95,15 @@ class MODULES_EXPORT MLContext : public ScriptWrappable {
                 const MLNamedTensors& outputs,
                 ExceptionState& exception_state);
 
+  void saveGraph(ScriptState* script_state,
+                 String key,
+                 MLGraph* graph,
+                 ExceptionState& exception_state);
+
+  ScriptPromise<MLGraph> loadGraph(ScriptState* script_state,
+                                   String key,
+                                   ExceptionState& exception_state);
+
   MLGraphBuilder* CreateWebNNGraphBuilder(ScriptState* script_state,
                                           ExceptionState& exception_state);
 
@@ -107,6 +116,10 @@ class MODULES_EXPORT MLContext : public ScriptWrappable {
 
   // Close the `context_remote_` pipe because the context has been lost.
   void OnLost(uint32_t custom_reason, const std::string& description);
+
+  void DidLoadGraph(webnn::ScopedTrace scoped_trace,
+                    ScriptPromiseResolver<blink::MLGraph>* resolver,
+                    webnn::mojom::blink::LoadGraphResultPtr result);
 
   void DidCreateWebNNTensor(webnn::ScopedTrace scoped_trace,
                             ScriptPromiseResolver<blink::MLTensor>* resolver,
@@ -130,6 +143,8 @@ class MODULES_EXPORT MLContext : public ScriptWrappable {
   // Keep a set of unresolved `ScriptPromiseResolver`s which will be
   // rejected when the Mojo pipe is unexpectedly disconnected.
   HeapHashSet<Member<ScriptPromiseResolver<MLTensor>>> pending_resolvers_;
+
+  HeapHashSet<Member<ScriptPromiseResolver<MLGraph>>> pending_graph_resolvers_;
 
   HeapHashSet<WeakMember<MLGraph>> graphs_;
   HeapHashSet<WeakMember<MLGraphBuilder>> graph_builders_;

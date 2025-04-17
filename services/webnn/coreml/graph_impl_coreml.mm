@@ -630,6 +630,10 @@ void GraphImplCoreml::DispatchImpl(
   task->Enqueue();
 }
 
+void GraphImplCoreml::SaveGraphImpl(std::string_view key) {
+  NOTIMPLEMENTED();
+}
+
 GraphImplCoreml::Params::Params(
     ComputeResourceInfo compute_resource_info,
     base::flat_map<std::string, std::string> coreml_name_to_operand_name)
