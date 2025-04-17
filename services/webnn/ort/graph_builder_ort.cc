@@ -726,7 +726,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
   // A map of all reshape operations in `mojom::GraphInfo` whose output is
   // consumed by a transpose operation and this transpose must be contained in
   // `input_id_to_pre_matmul_transpose_map`. Using the input operand id of the
-  // reshaoe as the key.
+  // reshape as the key.
   std::map<uint64_t, const mojom::Operation*>
       input_id_to_reshape_transpose_matmul_map;
 
@@ -756,8 +756,8 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
       ++operand_id_to_use_count_map[input_id];
     }
 
-    // Try to find the operations that can be fused into following matmul
-    // operations.
+    // Try to find the operations that can be fused into a MatMulNBits
+    // operation.
     switch (operation->which()) {
       case mojom::Operation::Tag::kMatmul: {
         // Map matmul's 2nd inputs to operation, so the following algorithm can
@@ -811,7 +811,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         }
         const mojom::DequantizeLinearPtr& dequantize_linear =
             operation->get_dequantize_linear();
-        // Input, scale, zero point must be constants.
+        // Input, scale and zeroPoint must be constants.
         if (!graph_info.constant_operand_ids_to_handles.contains(
                 dequantize_linear->input_operand_id) ||
             !graph_info.constant_operand_ids_to_handles.contains(
@@ -827,14 +827,14 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
             graph_info.id_to_operand_map.at(
                 dequantize_linear->scale_operand_id);
 
-        // Scales/output types must be float or float16.
+        // Scale/output types must be float or float16.
         auto scale_data_type = scale_operand->descriptor.data_type();
         if (scale_data_type != OperandDataType::kFloat32 &&
             scale_data_type != OperandDataType::kFloat16) {
           break;
         }
 
-        // Input/zeroPoints types must be int4/uint4,
+        // Input/zeroPoint types must be int4/uint4,
         auto input_data_type = input_operand->descriptor.data_type();
         if (input_data_type != OperandDataType::kInt4 &&
             input_data_type != OperandDataType::kUint4) {
@@ -843,7 +843,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
 
         uint32_t input_rank = input_operand->descriptor.shape().size();
         uint32_t scale_rank = input_operand->descriptor.shape().size();
-        // Input, scale and zero points must have the rank 3
+        // Input, scale and zeroPoint must have the rank 3
         if (input_rank != 3 || scale_rank != 3) {
           break;
         }
@@ -854,7 +854,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
           break;
         }
 
-        // Matmulnbits fusion pattern:
+        // MatMulNBits fusion pattern:
         //            scale
         //              |
         //     input reshape_2  zeroPoint
@@ -867,7 +867,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         //     \       /
         //        matmul
         // If scale is a constant, the reshape_2 will be folded into scale by
-        // constant_folding in WebNN blink side. The fusion patter will looks
+        // constant_folding in WebNN blink side. The fusion pattern will looks
         // like this:
         //     input   scale   zeroPoint
         //         \     |      /
