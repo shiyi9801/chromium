@@ -356,6 +356,47 @@ GraphBuilderOrt::CreateOrReshapeBias(const std::optional<uint32_t>& bias_id,
   return bias;
 }
 
+[[nodiscard]] base::expected<std::string, mojom::ErrorPtr>
+GraphBuilderOrt::CreateOrTransposeScaleForLayerNomalization(
+    const std::optional<uint32_t>& scale_id,
+    OperandDataType data_type,
+    base::span<const uint32_t> scale_shape,
+    base::span<const uint32_t> permutation) {
+  std::string scale;
+  if (scale_id) {
+    scale = GetOperandNameById(scale_id.value());
+    scale = PrependTranspose(scale, permutation);
+  } else {
+    base::CheckedNumeric<uint32_t> checked_scale_size =
+        std::accumulate(scale_shape.begin(), scale_shape.end(),
+                        base::CheckedNumeric<uint32_t>(1), std::multiplies());
+    if (!checked_scale_size.IsValid()) {
+      return NewNotSupportedError("The size of scale is too large.");
+    }
+
+    switch (data_type) {
+      case OperandDataType::kFloat16: {
+        std::vector<uint16_t> scale_data_fp16(checked_scale_size.ValueOrDie(),
+                                              fp16_ieee_from_fp32_value(1.0f));
+        ASSIGN_OR_RETURN(
+            scale, CreateInitializer<uint16_t>(scale_shape, scale_data_fp16));
+        break;
+      }
+      case OperandDataType::kFloat32: {
+        std::vector<float> scale_data(checked_scale_size.ValueOrDie(), 1.0f);
+        ASSIGN_OR_RETURN(scale,
+                         CreateInitializer<float>(scale_shape, scale_data));
+        break;
+      }
+      default:
+        NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
+                        "and float16 data type.";
+    }
+  }
+
+  return scale;
+}
+
 std::string GraphBuilderOrt::TransposeRnnWeightOrBiasLayout(
     std::string_view weight_or_bias,
     base::span<const uint32_t> permutation) {
@@ -2385,7 +2426,7 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
           break;
         }
         default:
-          NOTREACHED() << "[WebNN] InstanceNormalization only supports float32 "
+          NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
                           "and float16 data type.";
       }
       const std::string bias =
@@ -2399,79 +2440,183 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     return base::ok();
   }
 
-  // TODO: crbug.com/356905058: Figure out if unordered axes should be allowed.
-  if (!std::ranges::is_sorted(axes)) {
-    return NewNotSupportedError("Axes must be ordered for layerNormalization.");
-  }
   const auto axes_size = axes.size();
+  // Sort the indexes of the elements in the axes array based on their values
+  // and return the sorted index array for adding a transpose operation if
+  // needed. For example input shape is [2, 1, 4, 3], the shape of the scale and
+  // bias is [3, 1, 4] if axes is [3, 1, 2], the sorted axes would be [1, 2, 3],
+  // then the permutation would be (sorted indices array) [1, 2, 0].
+  std::vector<uint32_t> permutation(axes_size);
+  std::iota(permutation.begin(), permutation.end(), 0);
+  std::ranges::sort(permutation, std::ranges::less(),
+                    [axes](uint32_t index) { return axes[index]; });
+
+  std::ranges::sort(axes);
+  std::vector<uint32_t> scale_shape;
+  scale_shape.reserve(axes_size);
+  std::ranges::transform(
+      axes, std::back_inserter(scale_shape),
+      [&input_shape](uint32_t axis) { return input_shape[axis]; });
+
+  std::string scale;
+  std::string bias;
   // Here we only check beginning and ending of the ascending sorted axes,
   // because the blink validation code ensures axes not having duplicated
   // values.
-  // TODO: support inconsecutive axes by emulation -
-  // https://github.com/shiyi9801/chromium/issues/69.
-  if (axes[axes_size - 1] != input_shape.size() - 1 ||
-      axes[0] != input_shape.size() - axes_size) {
-    return NewNotSupportedError(
-        "ONNX LayerNormalization only supports last consecutive dimensions "
-        "as axes.");
-  }
-  uint32_t axis = axes[0];
-  std::string scale;
-  base::CheckedNumeric<uint32_t> checked_scale_size =
-      std::accumulate(input_shape.begin() + axis, input_shape.end(),
-                      base::CheckedNumeric<uint32_t>(1), std::multiplies());
-  if (!checked_scale_size.IsValid()) {
-    return NewNotSupportedError("The size of scale is too large.");
-  }
-
-  std::vector<uint32_t> scale_dims;
-  scale_dims.reserve(axes_size);
-  std::ranges::transform(
-      axes, std::back_inserter(scale_dims),
-      [&input_shape](uint32_t axis) { return input_shape[axis]; });
-
-  if (layer_normalization.scale_operand_id) {
-    scale = GetOperandNameById(layer_normalization.scale_operand_id.value());
+  if (axes[axes_size - 1] == input_shape.size() - 1 &&
+      axes[0] == input_shape.size() - axes_size) {
+    ASSIGN_OR_RETURN(scale, CreateOrTransposeScaleForLayerNomalization(
+                                layer_normalization.scale_operand_id,
+                                input_data_type, scale_shape, permutation));
     inputs.push_back(scale.c_str());
+
+    if (layer_normalization.bias_operand_id) {
+      bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
+      bias = PrependTranspose(bias, permutation);
+      inputs.push_back(bias.c_str());
+    }
+
+    std::vector<ScopedOrtOpAttr> attributes;
+    attributes.reserve(2);
+    attributes.push_back(model_editor_.CreateAttribute(
+        /*name=*/"axis", base::checked_cast<int64_t>(axes[0])));
+    attributes.push_back(model_editor_.CreateAttribute(
+        /*name=*/"epsilon", layer_normalization.epsilon));
+
+    model_editor_.AddNode(kOpTypeLayerNormalization, node, inputs, outputs,
+                          std::move(attributes));
   } else {
+    // Emulation layerNormalization by scale * ((input - mean) / sqrt(variance +
+    // epsilon)) + bias. Calculate mean as follows- reduceOptions = {axes,
+    // keepDimensions: true}; mean = builder.reduceMean(input, reduceOptions).
+    std::string inserted_node =
+        GenerateNextOperationName("inserted_reduceMean_1");
+    const std::string mean_output = GenerateNextOperandName();
+
+    std::vector<const char*> reduce_mean_1_inputs = {input.data()};
+    std::array<const char*, 1> reduce_mean_1_outputs = {mean_output.data()};
+
+    std::vector<int64_t> axes_value(axes.begin(), axes.end());
+    // axes is an operand with data type int64, not an attribute.
+    std::vector<uint32_t> axes_dims = {
+        base::checked_cast<uint32_t>(axes_value.size())};
+    ASSIGN_OR_RETURN(std::string axes_name,
+                     CreateInitializer<int64_t>(axes_dims, axes_value));
+    reduce_mean_1_inputs.push_back(axes_name.c_str());
+
+    std::vector<ScopedOrtOpAttr> reduce_mean_1_attributes;
+    reduce_mean_1_attributes.reserve(2);
+    reduce_mean_1_attributes.push_back(
+        model_editor_.CreateAttribute(/*name=*/"keepdims", 1));
+    reduce_mean_1_attributes.push_back(model_editor_.CreateAttribute(
+        /*name=*/"noop_with_empty_axes", 1));
+
+    model_editor_.AddNode(kOpTypeReduceMean, inserted_node,
+                          reduce_mean_1_inputs, reduce_mean_1_outputs,
+                          std::move(reduce_mean_1_attributes));
+
+    // Calculate variance as follows-
+    // variance = builder.reduceMean(
+    // builder.pow(builder.sub(input, mean), builder.constant(input.dataType,
+    // 2)), reduceOptions).
+    inserted_node = GenerateNextOperationName("inserted_sub");
+    const std::string sub_output = GenerateNextOperandName();
+
+    std::array<const char*, 2> sub_inputs = {input.data(), mean_output.data()};
+    std::array<const char*, 1> sub_outputs = {sub_output.data()};
+
+    model_editor_.AddNode(kOpTypeSub, inserted_node, sub_inputs, sub_outputs);
+
+    inserted_node = GenerateNextOperationName("inserted_pow");
+    const std::string pow_output = GenerateNextOperandName();
+    ASSIGN_OR_RETURN(std::string pow_value, CreateScalarInitializer<float>(2));
+    std::array<const char*, 2> pow_inputs = {sub_output.data(),
+                                             pow_value.data()};
+    std::array<const char*, 1> pow_outputs = {pow_output.data()};
+
+    model_editor_.AddNode(kOpTypePow, inserted_node, pow_inputs, pow_outputs);
+
+    inserted_node = GenerateNextOperationName("inserted_reduce_mean_2");
+    const std::string variance_output = GenerateNextOperandName();
+    std::vector<const char*> reduce_mean_2_inputs = {pow_output.data()};
+    std::array<const char*, 1> reduce_mean_2_outputs = {variance_output.data()};
+    std::vector<ScopedOrtOpAttr> reduce_mean_2_attributes;
+    reduce_mean_2_attributes.reserve(2);
+    reduce_mean_2_attributes.push_back(
+        model_editor_.CreateAttribute(/*name=*/"keepdims", 1));
+    reduce_mean_2_attributes.push_back(model_editor_.CreateAttribute(
+        /*name=*/"noop_with_empty_axes", 1));
+    reduce_mean_2_inputs.push_back(axes_name.c_str());
+    model_editor_.AddNode(kOpTypeReduceMean, inserted_node,
+                          reduce_mean_2_inputs, reduce_mean_2_outputs,
+                          std::move(reduce_mean_2_attributes));
+
+    inserted_node = GenerateNextOperationName("inserted_add");
+    const std::string add_output = GenerateNextOperandName();
+    std::string epsilon_value;
     switch (input_data_type) {
       case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16(checked_scale_size.ValueOrDie(),
-                                              fp16_ieee_from_fp32_value(1.0f));
-        ASSIGN_OR_RETURN(
-            scale, CreateInitializer<uint16_t>(scale_dims, scale_data_fp16));
+        ASSIGN_OR_RETURN(epsilon_value, CreateScalarInitializer<uint16_t>(
+                                            layer_normalization.epsilon));
         break;
       }
       case OperandDataType::kFloat32: {
-        std::vector<float> scale_data(checked_scale_size.ValueOrDie(), 1.0f);
-        ASSIGN_OR_RETURN(scale,
-                         CreateInitializer<float>(scale_dims, scale_data));
+        ASSIGN_OR_RETURN(epsilon_value, CreateScalarInitializer<float>(
+                                            layer_normalization.epsilon));
+
         break;
       }
       default:
         NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
                         "and float16 data type.";
     }
+    std::array<const char*, 2> add_inputs = {variance_output.data(),
+                                             epsilon_value.data()};
+    std::array<const char*, 1> add_outputs = {add_output.data()};
+    model_editor_.AddNode(kOpTypeAdd, inserted_node, add_inputs, add_outputs);
 
-    inputs.push_back(scale.c_str());
+    inserted_node = GenerateNextOperationName("inserted_sqrt");
+    const std::string sqrt_output = GenerateNextOperandName();
+    std::array<const char*, 1> sqrt_inputs = {add_output.data()};
+    std::array<const char*, 1> sqrt_outputs = {sqrt_output.data()};
+    model_editor_.AddNode(kOpTypeSqrt, inserted_node, sqrt_inputs,
+                          sqrt_outputs);
+
+    inserted_node = GenerateNextOperationName("inserted_div");
+    const std::string div_output = GenerateNextOperandName();
+    std::array<const char*, 2> div_inputs = {sub_output.data(),
+                                             sqrt_output.data()};
+    std::array<const char*, 1> div_outputs = {div_output.data()};
+    model_editor_.AddNode(kOpTypeDiv, inserted_node, div_inputs, div_outputs);
+
+    // Reshape to compatible_shape to match the input_shape for emulation
+    // calculation.
+    std::vector<uint32_t> compatible_shape(input_shape.size(), 1);
+    for (auto axis : axes) {
+      compatible_shape[axis] = input_shape[axis];
+    }
+    ASSIGN_OR_RETURN(scale, CreateOrTransposeScaleForLayerNomalization(
+                                layer_normalization.scale_operand_id,
+                                input_data_type, scale_shape, permutation));
+    ASSIGN_OR_RETURN(scale, PrependReshape(scale, compatible_shape));
+    if (layer_normalization.bias_operand_id) {
+      inserted_node = GenerateNextOperationName("inserted_mul");
+      const std::string mul_output = GenerateNextOperandName();
+      std::array<const char*, 2> mul_inputs = {scale.data(), div_output.data()};
+      std::array<const char*, 1> mul_outputs = {mul_output.data()};
+      model_editor_.AddNode(kOpTypeMul, inserted_node, mul_inputs, mul_outputs);
+
+      bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
+      bias = PrependTranspose(bias, permutation);
+      ASSIGN_OR_RETURN(bias, PrependReshape(bias, compatible_shape));
+      std::array<const char*, 2> add_2_inputs = {mul_output.data(),
+                                                 bias.data()};
+      model_editor_.AddNode(kOpTypeAdd, node, add_2_inputs, outputs);
+    } else {
+      std::array<const char*, 2> mul_inputs = {scale.data(), div_output.data()};
+      model_editor_.AddNode(kOpTypeMul, node, mul_inputs, outputs);
+    }
   }
-
-  std::string bias;
-  if (layer_normalization.bias_operand_id) {
-    bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
-    inputs.push_back(bias.c_str());
-  }
-
-  std::vector<ScopedOrtOpAttr> attributes;
-  attributes.reserve(2);
-  attributes.push_back(model_editor_.CreateAttribute(
-      /*name=*/"axis", base::checked_cast<int64_t>(axis)));
-  attributes.push_back(model_editor_.CreateAttribute(
-      /*name=*/"epsilon", layer_normalization.epsilon));
-
-  model_editor_.AddNode(kOpTypeLayerNormalization, node, inputs, outputs,
-                        std::move(attributes));
-
   return base::ok();
 }
 
