@@ -13,8 +13,6 @@
 
 namespace webnn {
 
-namespace {
-
 namespace ort {
 
 OrtModelEditor::ModelInfo::ModelInfo() = default;
