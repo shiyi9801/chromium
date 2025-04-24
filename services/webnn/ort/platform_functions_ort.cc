@@ -4,28 +4,45 @@
 
 #include "services/webnn/ort/platform_functions_ort.h"
 
+#include "base/base_paths_win.h"
+#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/native_library.h"
 #include "base/path_service.h"
+#include "services/webnn/webnn_switches.h"
 
 namespace webnn::ort {
 
 PlatformFunctions::PlatformFunctions() {
-  // First try to Load onnxruntime.dll from the module folder.
   base::ScopedNativeLibrary ort_library;
-  base::FilePath module_path;
-  if (base::PathService::Get(base::DIR_MODULE, &module_path)) {
+  base::FilePath ort_library_path;
+
+  // If the switch `kWebNNOrtLoadProgramFiles` is used, try to load
+  // onnxruntime.dll from the program files folder firstly.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kWebNNOrtLoadProgramFiles) &&
+      base::PathService::Get(base::DIR_PROGRAM_FILES, &ort_library_path)) {
     ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
-        module_path.Append(L"onnxruntime.dll"), nullptr));
+        ort_library_path.Append(L"ONNXRuntime\\onnxruntime.dll"), nullptr));
+    if (!ort_library.is_valid()) {
+      LOG(ERROR) << "[WebNN] Failed to load onnxruntime.dll from the program "
+                    "files folder.";
+    }
   }
-  if (!ort_library.is_valid()) {
-    ort_library =
-        base::ScopedNativeLibrary(base::LoadSystemLibrary(L"onnxruntime.dll"));
-  }
-  if (!ort_library.is_valid()) {
-    LOG(ERROR) << "[WebNN] Failed to load onnxruntime.dll.";
-    return;
+
+  // If the switch `kWebNNOrtLoadProgramFiles` is not used or fail to load
+  // onnxruntime.dll from the program files folder, try to load onnxruntime.dll
+  // from the module folder.
+  if (!ort_library.is_valid() &&
+      base::PathService::Get(base::DIR_MODULE, &ort_library_path)) {
+    ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
+        ort_library_path.Append(L"onnxruntime.dll"), nullptr));
+    if (!ort_library.is_valid()) {
+      LOG(ERROR)
+          << "[WebNN] Failed to load onnxruntime.dll from the module folder.";
+      return;
+    }
   }
 
   OrtGetApiBaseProc ort_get_api_base_proc = reinterpret_cast<OrtGetApiBaseProc>(

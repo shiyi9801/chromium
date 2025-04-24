@@ -45,10 +45,18 @@ inline constexpr char kWebNNOrtUseOVModelCache[] =
 // Usage: --no-sandbox --enable-logging --webnn-ort-logging-level=VERBOSE
 // Other severity levels could be "INFO", "WARNING" (default), "ERROR" and
 // "FATAL".
-// Please note if "--use-redist-ort" switch is used, this logging level
-// setting will be ignored, because an OrtEnv will be created before with
-// WARNING logging level.
 inline constexpr char kWebNNOrtLoggingLevel[] = "webnn-ort-logging-level";
+
+// Allow loading onnxruntime.dll from the program files folder firstly. Note, if
+// the switch is not used or fail to load, webnn will try to load
+// onnxruntime.dll from the module folder.
+// Usage: --webnn-ort-load-program-files
+//
+// By the way, if you want to load non-signed dlls, you need also append
+// "--allow-third-party-modules" to the command line.
+// Usage: --webnn-ort-load-program-files --allow-third-party-modules
+inline constexpr char kWebNNOrtLoadProgramFiles[] =
+    "webnn-ort-load-program-files";
 #endif  // BUILDFLAG(WEBNN_USE_ORT)
 
 }  // namespace switches
