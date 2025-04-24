@@ -7130,7 +7130,9 @@ void GraphImplDml::OnDispatchComplete(
   }
 }
 
-void GraphImplDml::SaveGraphImpl(std::string_view key) {
+void GraphImplDml::SaveGraphImpl(
+    std::string_view key,
+    base::OnceCallback<void(mojom::ErrorPtr)> callback) {
   NOTIMPLEMENTED();
 }
 

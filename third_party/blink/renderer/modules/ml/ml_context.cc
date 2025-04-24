@@ -1171,23 +1171,25 @@ void MLContext::dispatch(ScriptState* script_state,
                          exception_state);
 }
 
-void MLContext::saveGraph(ScriptState* script_state,
-                          String key,
-                          MLGraph* graph,
-                          ExceptionState& exception_state) {
+ScriptPromise<IDLUndefined> MLContext::saveGraph(
+    ScriptState* script_state,
+    String key,
+    MLGraph* graph,
+    ExceptionState& exception_state) {
   webnn::ScopedTrace scoped_trace("MLContext::saveGraph");
   if (!script_state->ContextIsValid()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Invalid script state");
-    return;
+    return EmptyPromise();
   }
   if (graph->Context() != this) {
     exception_state.ThrowTypeError(
         "The graph isn't built within this context.");
-    return;
+    return EmptyPromise();
   }
 
-  graph->SaveGraph(std::move(scoped_trace), std::move(key), exception_state);
+  return graph->SaveGraph(std::move(scoped_trace), script_state, std::move(key),
+                          exception_state);
 }
 
 ScriptPromise<MLGraph> MLContext::loadGraph(ScriptState* script_state,

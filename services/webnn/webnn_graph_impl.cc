@@ -163,10 +163,14 @@ bool WebNNGraphImpl::ComputeResourceInfo::SerializeToString(
 }
 
 // static
-WebNNGraphImpl::ComputeResourceInfo
+base::expected<WebNNGraphImpl::ComputeResourceInfo, mojom::ErrorPtr>
 WebNNGraphImpl::ComputeResourceInfo::ParseFromString(std::string_view str) {
   services::webnn::proto::ComputeResourceInfo resource_info_proto;
-  CHECK(resource_info_proto.ParseFromString(str));
+  if (!resource_info_proto.ParseFromString(str)) {
+    return base::unexpected(
+        mojom::Error::New(mojom::Error::Code::kUnknownError,
+                          "Failed to parse the compute resource info."));
+  }
 
   auto convert_data_type =
       [](services::webnn::proto::OperandDataType data_type) {
@@ -234,9 +238,9 @@ WebNNGraphImpl::ComputeResourceInfo::ParseFromString(std::string_view str) {
                                             std::move(operation_ids));
   }
 
-  return {std::move(input_names_to_descriptors),
-          std::move(output_names_to_descriptors),
-          std::move(operand_to_dependent_operations)};
+  return ComputeResourceInfo{std::move(input_names_to_descriptors),
+                             std::move(output_names_to_descriptors),
+                             std::move(operand_to_dependent_operations)};
 }
 
 WebNNGraphImpl::WebNNGraphImpl(
@@ -318,8 +322,10 @@ void WebNNGraphImpl::Dispatch(
   DispatchImpl(name_to_input_tensor_map, name_to_output_tensor_map);
 }
 
-void WebNNGraphImpl::SaveGraph(const std::string& key) {
-  SaveGraphImpl(key);
+void WebNNGraphImpl::SaveGraph(
+    const std::string& key,
+    base::OnceCallback<void(mojom::ErrorPtr)> callback) {
+  SaveGraphImpl(key, std::move(callback));
 }
 
 }  // namespace webnn

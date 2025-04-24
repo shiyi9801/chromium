@@ -630,7 +630,9 @@ void GraphImplCoreml::DispatchImpl(
   task->Enqueue();
 }
 
-void GraphImplCoreml::SaveGraphImpl(std::string_view key) {
+void GraphImplCoreml::SaveGraphImpl(
+    std::string_view key,
+    base::OnceCallback<void(mojom::ErrorPtr)> callback) {
   NOTIMPLEMENTED();
 }
 

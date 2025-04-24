@@ -13,6 +13,7 @@
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "services/webnn/public/cpp/operand_descriptor.h"
+#include "services/webnn/public/mojom/webnn_error.mojom.h"
 #include "services/webnn/public/mojom/webnn_graph.mojom.h"
 #include "services/webnn/webnn_object_impl.h"
 
@@ -51,7 +52,8 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNGraphImpl
                             operand_to_dependent_operations);
 
     bool SerializeToString(std::string& str) const;
-    static ComputeResourceInfo ParseFromString(std::string_view str);
+    static base::expected<ComputeResourceInfo, mojom::ErrorPtr> ParseFromString(
+        std::string_view str);
 
     base::flat_map<std::string, OperandDescriptor> input_names_to_descriptors;
     base::flat_map<std::string, OperandDescriptor> output_names_to_descriptors;
@@ -100,9 +102,12 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNGraphImpl
 
   mojo::AssociatedReceiver<mojom::WebNNGraph> receiver_;
 
-  void SaveGraph(const std::string& key) override;
+  void SaveGraph(const std::string& key,
+                 base::OnceCallback<void(mojom::ErrorPtr)> callback) override;
 
-  virtual void SaveGraphImpl(std::string_view key) = 0;
+  virtual void SaveGraphImpl(
+      std::string_view key,
+      base::OnceCallback<void(mojom::ErrorPtr)> callback) = 0;
 };
 
 }  // namespace webnn

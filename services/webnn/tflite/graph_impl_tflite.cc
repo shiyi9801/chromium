@@ -412,7 +412,9 @@ void GraphImplTflite::DispatchImpl(
   task->Enqueue();
 }
 
-void GraphImplTflite::SaveGraphImpl(std::string_view key) {
+void GraphImplTflite::SaveGraphImpl(
+    std::string_view key,
+    base::OnceCallback<void(mojom::ErrorPtr)> callback) {
   NOTIMPLEMENTED();
 }
 

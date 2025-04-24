@@ -27,6 +27,15 @@
 
 namespace webnn {
 
+WebNNContextImpl::LoadGraphResult::LoadGraphResult(
+    std::unique_ptr<WebNNGraphImpl> graph,
+    base::flat_map<std::string, webnn::OperandDescriptor> input_constraints,
+    base::flat_map<std::string, webnn::OperandDescriptor> output_constraints)
+    : graph(std::move(graph)),
+      input_constraints(std::move(input_constraints)),
+      output_constraints(std::move(output_constraints)) {}
+WebNNContextImpl::LoadGraphResult::~LoadGraphResult() = default;
+
 WebNNContextImpl::WebNNContextImpl(
     mojo::PendingReceiver<mojom::WebNNContext> receiver,
     WebNNContextProviderImpl* context_provider,
@@ -136,16 +145,20 @@ void WebNNContextImpl::LoadGraph(
 void WebNNContextImpl::DidLoadGraphImpl(
     mojom::WebNNContext::LoadGraphCallback callback,
     mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote,
-    std::unique_ptr<WebNNGraphImpl> graph,
-    base::flat_map<std::string, webnn::OperandDescriptor> input_contraints,
-    base::flat_map<std::string, webnn::OperandDescriptor> output_contraints) {
-  auto success = mojom::LoadGraphSuccess::New(std::move(remote),
-                                              std::move(input_contraints),
-                                              std::move(output_contraints));
+    base::expected<std::unique_ptr<LoadGraphResult>, mojom::ErrorPtr> result) {
+  if (!result.has_value()) {
+    std::move(callback).Run(
+        mojom::LoadGraphResult::NewError(std::move(result.error())));
+    return;
+  }
+
+  auto success = mojom::LoadGraphSuccess::New(
+      std::move(remote), std::move(result.value()->input_constraints),
+      std::move(result.value()->output_constraints));
   std::move(callback).Run(
       mojom::LoadGraphResult::NewSuccess(std::move(success)));
 
-  graph_impls_.emplace(std::move(graph));
+  graph_impls_.emplace(std::move(result.value()->graph));
 }
 
 void WebNNContextImpl::DisconnectAndDestroyWebNNTensorImpl(

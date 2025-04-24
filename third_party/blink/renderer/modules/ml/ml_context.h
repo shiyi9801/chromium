@@ -95,10 +95,10 @@ class MODULES_EXPORT MLContext : public ScriptWrappable {
                 const MLNamedTensors& outputs,
                 ExceptionState& exception_state);
 
-  void saveGraph(ScriptState* script_state,
-                 String key,
-                 MLGraph* graph,
-                 ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> saveGraph(ScriptState* script_state,
+                                        String key,
+                                        MLGraph* graph,
+                                        ExceptionState& exception_state);
 
   ScriptPromise<MLGraph> loadGraph(ScriptState* script_state,
                                    String key,

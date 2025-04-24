@@ -82,12 +82,24 @@ class GraphImplOrt final : public WebNNGraphImpl {
       base::expected<std::unique_ptr<ComputeResources>, mojom::ErrorPtr>
           result);
 
+  struct ComputeResourcesAndInfo {
+    ComputeResourcesAndInfo(
+        ComputeResourceInfo compute_resource_info,
+        std::unique_ptr<GraphImplOrt::ComputeResources> compute_resources);
+    ~ComputeResourcesAndInfo();
+
+    ComputeResourcesAndInfo(const ComputeResourcesAndInfo&) = delete;
+    ComputeResourcesAndInfo& operator=(const ComputeResourcesAndInfo&) = delete;
+
+    ComputeResourceInfo compute_resource_info;
+    std::unique_ptr<GraphImplOrt::ComputeResources> compute_resources;
+  };
+
   static void LoadAndBuildOnBackgroundThread(
       std::string key,
       scoped_refptr<SessionOptions> session_options,
       base::OnceCallback<
-          void(ComputeResourceInfo compute_resource_info,
-               base::expected<std::unique_ptr<GraphImplOrt::ComputeResources>,
+          void(base::expected<std::unique_ptr<ComputeResourcesAndInfo>,
                               mojom::ErrorPtr>)> callback,
       ScopedTrace scoped_trace);
 
@@ -95,8 +107,7 @@ class GraphImplOrt final : public WebNNGraphImpl {
       mojo::PendingAssociatedReceiver<mojom::WebNNGraph> receiver,
       base::WeakPtr<WebNNContextImpl> context,
       WebNNContextImpl::LoadGraphImplCallback callback,
-      ComputeResourceInfo compute_resource_info,
-      base::expected<std::unique_ptr<ComputeResources>, mojom::ErrorPtr>
+      base::expected<std::unique_ptr<ComputeResourcesAndInfo>, mojom::ErrorPtr>
           result);
 
   // Execute the compiled platform graph asynchronously. The inputs were
@@ -106,7 +117,9 @@ class GraphImplOrt final : public WebNNGraphImpl {
                     const base::flat_map<std::string_view, WebNNTensorImpl*>&
                         named_output_tensors) override;
 
-  void SaveGraphImpl(std::string_view key) override;
+  void SaveGraphImpl(
+      std::string_view key,
+      base::OnceCallback<void(mojom::ErrorPtr)> callback) override;
 
   // std::map<uint64_t, GraphBuilderOrt::OperandInfo> operand_infos_;
   scoped_refptr<QueueableResourceState<ComputeResources>>

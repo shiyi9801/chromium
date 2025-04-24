@@ -4870,8 +4870,8 @@
                    ONNXTensorElementDataType type,
                    _Outptr_ OrtValue** out);
 
-  ORT_API2_STATUS(SaveEpContextModel, _Inout_ OrtSession* session,
-  _In_ const char* ep_context_path);
+   ORT_API2_STATUS(SaveEpContextModel, _Inout_ OrtSession* session,
+                   _In_ const char* ep_context_path);
  };
  
  /*

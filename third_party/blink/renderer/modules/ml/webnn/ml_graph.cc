@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
 #include "third_party/blink/renderer/modules/ml/ml_context.h"
+#include "third_party/blink/renderer/modules/ml/webnn/ml_error.h"
 #include "third_party/blink/renderer/modules/ml/webnn/ml_graph_utils.h"
 #include "third_party/blink/renderer/modules/ml/webnn/ml_operand.h"
 #include "third_party/blink/renderer/modules/ml/webnn/ml_tensor.h"
@@ -155,6 +156,7 @@ MLGraph::~MLGraph() = default;
 void MLGraph::Trace(Visitor* visitor) const {
   visitor->Trace(ml_context_);
   visitor->Trace(remote_graph_);
+  visitor->Trace(pending_resolvers_);
   ScriptWrappable::Trace(visitor);
 }
 
@@ -222,17 +224,42 @@ void MLGraph::Dispatch(webnn::ScopedTrace scoped_trace,
   remote_graph_->Dispatch(std::move(mojo_inputs), std::move(mojo_outputs));
 }
 
-void MLGraph::SaveGraph(webnn::ScopedTrace scoped_trace,
-                        String key,
-                        ExceptionState& exception_state) {
+ScriptPromise<IDLUndefined> MLGraph::SaveGraph(
+    webnn::ScopedTrace scoped_trace,
+    ScriptState* script_state,
+    String key,
+    ExceptionState& exception_state) {
   if (!remote_graph_.is_bound()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidStateError,
         "Graph has been destroyed or context is lost.");
+    return EmptyPromise();
+  }
+
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<IDLUndefined>>(
+      script_state, exception_state.GetContext());
+  pending_resolvers_.insert(resolver);
+
+  remote_graph_->SaveGraph(
+      std::move(key),
+      WTF::BindOnce(&MLGraph::DidSaveGraph, WrapPersistent(this),
+                    std::move(scoped_trace), WrapPersistent(resolver)));
+
+  return resolver->Promise();
+}
+
+void MLGraph::DidSaveGraph(webnn::ScopedTrace scoped_trace,
+                           ScriptPromiseResolver<IDLUndefined>* resolver,
+                           webnn::mojom::blink::ErrorPtr error) {
+  pending_resolvers_.erase(resolver);
+
+  if (error) {
+    resolver->RejectWithDOMException(
+        WebNNErrorCodeToDOMExceptionCode(error->code), error->message);
     return;
   }
 
-  remote_graph_->SaveGraph(std::move(key));
+  resolver->Resolve();
 }
 
 const MLContext* MLGraph::Context() const {
@@ -241,6 +268,12 @@ const MLContext* MLGraph::Context() const {
 
 void MLGraph::OnConnectionError() {
   remote_graph_.reset();
+  for (const auto& resolver : pending_resolvers_) {
+    resolver->RejectWithDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "Graph has been destroyed or context is lost.");
+  }
+  pending_resolvers_.clear();
 }
 
 }  // namespace blink

@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_ml_operand_descriptor.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
@@ -80,14 +81,19 @@ class MODULES_EXPORT MLGraph : public ScriptWrappable {
                 const MLNamedTensors& outputs,
                 ExceptionState& exception_state);
 
-  void SaveGraph(webnn::ScopedTrace scoped_trace,
-                 String key,
-                 ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> SaveGraph(webnn::ScopedTrace scoped_trace,
+                                        ScriptState* script_state,
+                                        String key,
+                                        ExceptionState& exception_state);
 
   const MLContext* Context() const;
 
  private:
   void OnConnectionError();
+
+  void DidSaveGraph(webnn::ScopedTrace scoped_trace,
+                    ScriptPromiseResolver<IDLUndefined>* resolver,
+                    webnn::mojom::blink::ErrorPtr error);
 
   // Describes the constraints on the inputs or outputs to this graph.
   // Note that `WTF::HashMap` values must be nullable, but
@@ -101,6 +107,8 @@ class MODULES_EXPORT MLGraph : public ScriptWrappable {
   // The `WebNNGraph` is a compiled graph that can be executed by the hardware
   // accelerated OS machine learning API.
   HeapMojoAssociatedRemote<webnn::mojom::blink::WebNNGraph> remote_graph_;
+
+  HeapHashSet<Member<ScriptPromiseResolver<IDLUndefined>>> pending_resolvers_;
 };
 
 }  // namespace blink

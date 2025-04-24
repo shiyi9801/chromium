@@ -336,7 +336,7 @@ typedef record<USVString, MLTensor> MLNamedTensors;
     RuntimeEnabled=MachineLearningNeuralNetwork,
     CallWith=ScriptState,
     RaisesException
-  ] void saveGraph(DOMString key, MLGraph graph);
+  ] Promise<undefined> saveGraph(DOMString key, MLGraph graph);
 
   [
     RuntimeEnabled=MachineLearningNeuralNetwork,

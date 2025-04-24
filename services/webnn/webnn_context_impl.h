@@ -51,10 +51,23 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNContextImpl
   using CreateTensorImplCallback = base::OnceCallback<void(
       base::expected<std::unique_ptr<WebNNTensorImpl>, mojom::ErrorPtr>)>;
 
+  struct LoadGraphResult {
+    LoadGraphResult(
+        std::unique_ptr<WebNNGraphImpl> graph,
+        base::flat_map<std::string, webnn::OperandDescriptor> input_constraints,
+        base::flat_map<std::string, webnn::OperandDescriptor>
+            output_constraints);
+    ~LoadGraphResult();
+
+    LoadGraphResult(const LoadGraphResult&) = delete;
+    LoadGraphResult& operator=(const LoadGraphResult&) = delete;
+
+    std::unique_ptr<WebNNGraphImpl> graph;
+    base::flat_map<std::string, webnn::OperandDescriptor> input_constraints;
+    base::flat_map<std::string, webnn::OperandDescriptor> output_constraints;
+  };
   using LoadGraphImplCallback = base::OnceCallback<void(
-      std::unique_ptr<WebNNGraphImpl>,
-      base::flat_map<std::string, webnn::OperandDescriptor>,
-      base::flat_map<std::string, webnn::OperandDescriptor>)>;
+      base::expected<std::unique_ptr<LoadGraphResult>, mojom::ErrorPtr>)>;
 
   WebNNContextImpl(mojo::PendingReceiver<mojom::WebNNContext> receiver,
                    WebNNContextProviderImpl* context_provider,
@@ -170,9 +183,7 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) WebNNContextImpl
   void DidLoadGraphImpl(
       LoadGraphCallback callback,
       mojo::PendingAssociatedRemote<mojom::WebNNGraph> remote,
-      std::unique_ptr<WebNNGraphImpl> graph,
-      base::flat_map<std::string, webnn::OperandDescriptor> input_contraints,
-      base::flat_map<std::string, webnn::OperandDescriptor> output_contraints);
+      base::expected<std::unique_ptr<LoadGraphResult>, mojom::ErrorPtr> result);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

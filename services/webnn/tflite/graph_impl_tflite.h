@@ -64,7 +64,9 @@ class GraphImplTflite final : public WebNNGraphImpl {
       const base::flat_map<std::string_view, WebNNTensorImpl*>& named_outputs)
       override;
 
-  void SaveGraphImpl(std::string_view key) override;
+  void SaveGraphImpl(
+      std::string_view key,
+      base::OnceCallback<void(mojom::ErrorPtr)> callback) override;
 
   scoped_refptr<QueueableResourceState<ComputeResources>>
       compute_resources_state_;

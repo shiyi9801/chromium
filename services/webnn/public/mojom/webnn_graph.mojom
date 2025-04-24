@@ -5,6 +5,7 @@
 module webnn.mojom;
 
 import "services/webnn/public/mojom/webnn_context_properties.mojom";
+import "services/webnn/public/mojom/webnn_error.mojom";
 import "third_party/blink/public/mojom/tokens/tokens.mojom";
 
 // Represents the `MLOperandType` in the WebIDL definition.
@@ -1439,5 +1440,5 @@ interface WebNNGraph {
   Dispatch(map<string, blink.mojom.WebNNTensorToken> named_inputs,
            map<string, blink.mojom.WebNNTensorToken> named_outputs);
 
-  SaveGraph(string key);
+  SaveGraph(string key) => (Error? error);
 };
