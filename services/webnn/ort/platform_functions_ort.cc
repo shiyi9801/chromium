@@ -18,29 +18,31 @@ PlatformFunctions::PlatformFunctions() {
   base::ScopedNativeLibrary ort_library;
   base::FilePath ort_library_path;
 
-  // If the switch `kWebNNOrtLoadProgramFiles` is used, try to load
-  // onnxruntime.dll from the program files folder firstly.
+  // If the switch `kWebNNOrtLibraryPath` is used, try to load onnxruntime.dll
+  // from the specified path firstly.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kWebNNOrtLoadProgramFiles) &&
-      base::PathService::Get(base::DIR_PROGRAM_FILES, &ort_library_path)) {
+          switches::kWebNNOrtLibraryPath)) {
+    ort_library_path =
+        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+            switches::kWebNNOrtLibraryPath);
     ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
-        ort_library_path.Append(L"ONNXRuntime\\onnxruntime.dll"), nullptr));
+        ort_library_path.Append(L"onnxruntime.dll"), nullptr));
     if (!ort_library.is_valid()) {
-      LOG(ERROR) << "[WebNN] Failed to load onnxruntime.dll from the program "
-                    "files folder.";
+      LOG(ERROR)
+          << "[WebNN] Failed to load onnxruntime.dll from the specified path.";
     }
   }
 
-  // If the switch `kWebNNOrtLoadProgramFiles` is not used or fail to load
-  // onnxruntime.dll from the program files folder, try to load onnxruntime.dll
-  // from the module folder.
+  // If the switch `kWebNNOrtLibraryPath` is not used or fail to load
+  // onnxruntime.dll from the specified path, try to load onnxruntime.dll
+  // from the module path.
   if (!ort_library.is_valid() &&
       base::PathService::Get(base::DIR_MODULE, &ort_library_path)) {
     ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
         ort_library_path.Append(L"onnxruntime.dll"), nullptr));
     if (!ort_library.is_valid()) {
       LOG(ERROR)
-          << "[WebNN] Failed to load onnxruntime.dll from the module folder.";
+          << "[WebNN] Failed to load onnxruntime.dll from the module path.";
       return;
     }
   }

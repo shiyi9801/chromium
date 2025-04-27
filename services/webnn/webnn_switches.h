@@ -47,16 +47,16 @@ inline constexpr char kWebNNOrtUseOVModelCache[] =
 // "FATAL".
 inline constexpr char kWebNNOrtLoggingLevel[] = "webnn-ort-logging-level";
 
-// Allow loading onnxruntime.dll from the program files folder firstly. Note, if
-// the switch is not used or fail to load, webnn will try to load
-// onnxruntime.dll from the module folder.
-// Usage: --webnn-ort-load-program-files
+// For testing within GPU sandbox, developers need to copy ONNX Runtime DLLs,
+// OpenVINO EP DLL and OpenVINO DLLs into a folder under "Program Files" and
+// specify it with this switch.
+// Usage: --webnn-ort-library-path="C:\Program Files\ONNXRuntime-OVEP"
 //
 // By the way, if you want to load non-signed dlls, you need also append
-// "--allow-third-party-modules" to the command line.
-// Usage: --webnn-ort-load-program-files --allow-third-party-modules
-inline constexpr char kWebNNOrtLoadProgramFiles[] =
-    "webnn-ort-load-program-files";
+// "--allow-third-party-modules".
+// Usage: --webnn-ort-library-path="C:\Program Files\ONNXRuntime-OVEP"
+// --allow-third-party-modules
+inline constexpr char kWebNNOrtLibraryPath[] = "webnn-ort-library-path";
 #endif  // BUILDFLAG(WEBNN_USE_ORT)
 
 }  // namespace switches
