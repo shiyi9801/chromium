@@ -52,8 +52,8 @@ inline constexpr char kWebNNOrtLoggingLevel[] = "webnn-ort-logging-level";
 // specify it with this switch.
 // Usage: --webnn-ort-library-path="C:\Program Files\ONNXRuntime-OVEP"
 //
-// By the way, if you want to load non-signed dlls, you need also append
-// "--allow-third-party-modules".
+// For testing non-Microsoft-signed DLLs within GPU sandbox, you need also
+// append "--allow-third-party-modules".
 // Usage: --webnn-ort-library-path="C:\Program Files\ONNXRuntime-OVEP"
 // --allow-third-party-modules
 inline constexpr char kWebNNOrtLibraryPath[] = "webnn-ort-library-path";

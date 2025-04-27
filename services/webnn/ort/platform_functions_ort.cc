@@ -22,24 +22,26 @@ PlatformFunctions::PlatformFunctions() {
   // from the specified path firstly.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kWebNNOrtLibraryPath)) {
-    ort_library_path =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
-            switches::kWebNNOrtLibraryPath);
-    ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
-        ort_library_path.Append(L"onnxruntime.dll"), nullptr));
+    ort_library_path = base::CommandLine::ForCurrentProcess()
+                           ->GetSwitchValuePath(switches::kWebNNOrtLibraryPath)
+                           .Append(L"onnxruntime.dll");
+    ort_library = base::ScopedNativeLibrary(
+        base::LoadNativeLibrary(ort_library_path, nullptr));
     if (!ort_library.is_valid()) {
       LOG(ERROR)
-          << "[WebNN] Failed to load onnxruntime.dll from the specified path.";
+          << "[WebNN] Failed to load onnxruntime.dll from the specified path: "
+          << ort_library_path;
     }
   }
 
   // If the switch `kWebNNOrtLibraryPath` is not used or fail to load
   // onnxruntime.dll from the specified path, try to load onnxruntime.dll
   // from the module path.
-  if (!ort_library.is_valid() &&
-      base::PathService::Get(base::DIR_MODULE, &ort_library_path)) {
-    ort_library = base::ScopedNativeLibrary(base::LoadNativeLibrary(
-        ort_library_path.Append(L"onnxruntime.dll"), nullptr));
+  if (!ort_library.is_valid()) {
+    ort_library_path = base::PathService::CheckedGet(base::DIR_MODULE)
+                           .Append(L"onnxruntime.dll");
+    ort_library = base::ScopedNativeLibrary(
+        base::LoadNativeLibrary(ort_library_path, nullptr));
     if (!ort_library.is_valid()) {
       LOG(ERROR)
           << "[WebNN] Failed to load onnxruntime.dll from the module path.";
