@@ -357,44 +357,36 @@ GraphBuilderOrt::CreateOrReshapeBias(const std::optional<uint32_t>& bias_id,
 }
 
 [[nodiscard]] base::expected<std::string, mojom::ErrorPtr>
-GraphBuilderOrt::CreateOrTransposeScaleForLayerNomalization(
-    const std::optional<uint32_t>& scale_id,
+GraphBuilderOrt::CreateScaleOrBiasForNomalization(
     OperandDataType data_type,
-    base::span<const uint32_t> scale_shape,
-    base::span<const uint32_t> permutation) {
-  std::string scale;
-  if (scale_id) {
-    scale = GetOperandNameById(scale_id.value());
-    scale = PrependTranspose(scale, permutation);
-  } else {
-    base::CheckedNumeric<uint32_t> checked_scale_size =
-        std::accumulate(scale_shape.begin(), scale_shape.end(),
-                        base::CheckedNumeric<uint32_t>(1), std::multiplies());
-    if (!checked_scale_size.IsValid()) {
-      return NewNotSupportedError("The size of scale is too large.");
-    }
-
-    switch (data_type) {
-      case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16(checked_scale_size.ValueOrDie(),
-                                              fp16_ieee_from_fp32_value(1.0f));
-        ASSIGN_OR_RETURN(
-            scale, CreateInitializer<uint16_t>(scale_shape, scale_data_fp16));
-        break;
-      }
-      case OperandDataType::kFloat32: {
-        std::vector<float> scale_data(checked_scale_size.ValueOrDie(), 1.0f);
-        ASSIGN_OR_RETURN(scale,
-                         CreateInitializer<float>(scale_shape, scale_data));
-        break;
-      }
-      default:
-        NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
-                        "and float16 data type.";
-    }
+    base::span<const uint32_t> shape,
+    float value) {
+  std::string operand;
+  base::CheckedNumeric<uint32_t> checked_operand_size =
+      std::accumulate(shape.begin(), shape.end(),
+                      base::CheckedNumeric<uint32_t>(1), std::multiplies());
+  if (!checked_operand_size.IsValid()) {
+    return NewNotSupportedError("The size of scale or bias is too large.");
   }
 
-  return scale;
+  switch (data_type) {
+    case OperandDataType::kFloat16: {
+      std::vector<uint16_t> data_fp16(checked_operand_size.ValueOrDie(),
+                                      fp16_ieee_from_fp32_value(value));
+      ASSIGN_OR_RETURN(operand, CreateInitializer<uint16_t>(shape, data_fp16));
+      break;
+    }
+    case OperandDataType::kFloat32: {
+      std::vector<float> data(checked_operand_size.ValueOrDie(), value);
+      ASSIGN_OR_RETURN(operand, CreateInitializer<float>(shape, data));
+      break;
+    }
+    default:
+      NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
+                      "and float16 data type.";
+  }
+
+  return operand;
 }
 
 std::string GraphBuilderOrt::TransposeRnnWeightOrBiasLayout(
@@ -1029,25 +1021,8 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
     scale = GetOperandNameById(batch_normalization.scale_operand_id.value());
     inputs.push_back(scale.c_str());
   } else {
-    switch (input_data_type) {
-      case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16(input_channel,
-                                              fp16_ieee_from_fp32_value(1.0f));
-        ASSIGN_OR_RETURN(
-            scale, CreateInitializer<uint16_t>(constant_dims, scale_data_fp16));
-        break;
-      }
-      case OperandDataType::kFloat32: {
-        std::vector<float> scale_data(input_channel, 1.0f);
-        ASSIGN_OR_RETURN(scale,
-                         CreateInitializer<float>(constant_dims, scale_data));
-        break;
-      }
-      default:
-        NOTREACHED() << "[WebNN] BatchNormalization only supports float32 "
-                        "and float16 data type.";
-    }
-
+    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+                                input_data_type, constant_dims, 1.0f));
     inputs.push_back(scale.c_str());
   }
 
@@ -1055,25 +1030,8 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
     bias = GetOperandNameById(batch_normalization.bias_operand_id.value());
     inputs.push_back(bias.c_str());
   } else {
-    switch (input_data_type) {
-      case OperandDataType::kFloat16: {
-        std::vector<uint16_t> bias_data_fp16(input_channel,
-                                             fp16_ieee_from_fp32_value(0.0f));
-        ASSIGN_OR_RETURN(
-            bias, CreateInitializer<uint16_t>(constant_dims, bias_data_fp16));
-        break;
-      }
-      case OperandDataType::kFloat32: {
-        std::vector<float> bias_data(input_channel, 0.0f);
-        ASSIGN_OR_RETURN(bias,
-                         CreateInitializer<float>(constant_dims, bias_data));
-        break;
-      }
-      default:
-        NOTREACHED() << "[WebNN] BatchNormalization only supports float32 "
-                        "and float16 data type.";
-    }
-
+    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNomalization(
+                               input_data_type, constant_dims, 0.0f));
     inputs.push_back(bias.c_str());
   }
 
@@ -2318,25 +2276,8 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     scale = GetOperandNameById(instance_normalization.scale_operand_id.value());
     inputs.push_back(scale.c_str());
   } else {
-    std::vector<float> scale_data(input_channel, 1.0f);
-    switch (input_data_type) {
-      case OperandDataType::kFloat16: {
-        std::vector<uint16_t> scale_data_fp16(input_channel,
-                                              fp16_ieee_from_fp32_value(1.0f));
-        ASSIGN_OR_RETURN(
-            scale, CreateInitializer<uint16_t>(constant_dims, scale_data_fp16));
-        break;
-      }
-      case OperandDataType::kFloat32: {
-        ASSIGN_OR_RETURN(scale,
-                         CreateInitializer<float>(constant_dims, scale_data));
-        break;
-      }
-      default:
-        NOTREACHED() << "[WebNN] InstanceNormalization only supports float32 "
-                        "and float16 data type.";
-    }
-
+    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+                                input_data_type, constant_dims, 1.0f));
     inputs.push_back(scale.c_str());
   }
 
@@ -2344,25 +2285,8 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     bias = GetOperandNameById(instance_normalization.bias_operand_id.value());
     inputs.push_back(bias.c_str());
   } else {
-    std::vector<float> bias_data(input_channel, 0.0f);
-    switch (input_data_type) {
-      case OperandDataType::kFloat16: {
-        std::vector<uint16_t> bias_data_fp16(input_channel,
-                                             fp16_ieee_from_fp32_value(0.0f));
-        ASSIGN_OR_RETURN(
-            bias, CreateInitializer<uint16_t>(constant_dims, bias_data_fp16));
-        break;
-      }
-      case OperandDataType::kFloat32: {
-        ASSIGN_OR_RETURN(bias,
-                         CreateInitializer<float>(constant_dims, bias_data));
-        break;
-      }
-      default:
-        NOTREACHED() << "[WebNN] InstanceNormalization only supports float32 "
-                        "and float16 data type.";
-    }
-
+    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNomalization(
+                               input_data_type, constant_dims, 0.0f));
     inputs.push_back(bias.c_str());
   }
 
@@ -2446,10 +2370,11 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   // needed. For example input shape is [2, 1, 4, 3], the shape of the scale and
   // bias is [3, 1, 4] if axes is [3, 1, 2], the sorted axes would be [1, 2, 3],
   // then the permutation would be (sorted indices array) [1, 2, 0].
+  // std::optional<std::vector<uint32_t>> permutation;
   std::vector<uint32_t> permutation(axes_size);
   std::iota(permutation.begin(), permutation.end(), 0);
   std::ranges::sort(permutation, std::ranges::less(),
-                    [axes](uint32_t index) { return axes[index]; });
+                    [&axes](uint32_t index) { return axes[index]; });
 
   std::ranges::sort(axes);
   std::vector<uint32_t> scale_shape;
@@ -2465,14 +2390,22 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   // values.
   if (axes[axes_size - 1] == input_shape.size() - 1 &&
       axes[0] == input_shape.size() - axes_size) {
-    ASSIGN_OR_RETURN(scale, CreateOrTransposeScaleForLayerNomalization(
-                                layer_normalization.scale_operand_id,
-                                input_data_type, scale_shape, permutation));
+    if (layer_normalization.scale_operand_id) {
+      scale = GetOperandNameById(layer_normalization.scale_operand_id.value());
+      if (!std::ranges::is_sorted(permutation)) {
+        scale = PrependTranspose(scale, permutation);
+      }
+    } else {
+      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+                                  input_data_type, scale_shape, 1.0f));
+    }
     inputs.push_back(scale.c_str());
 
     if (layer_normalization.bias_operand_id) {
       bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
-      bias = PrependTranspose(bias, permutation);
+      if (!std::ranges::is_sorted(permutation)) {
+        bias = PrependTranspose(bias, permutation);
+      }
       inputs.push_back(bias.c_str());
     }
 
@@ -2489,8 +2422,10 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     // Emulation layerNormalization by scale * ((input - mean) / sqrt(variance +
     // epsilon)) + bias. Calculate mean as follows- reduceOptions = {axes,
     // keepDimensions: true}; mean = builder.reduceMean(input, reduceOptions).
-    std::string inserted_node =
-        GenerateNextOperationName("inserted_reduceMean_1");
+    const std::string reduce_mean_1_label = base::JoinString(
+        {layer_normalization.label, "inserted_reduceMean_1"}, kUnderscore);
+    const std::string reduce_mean_1 =
+        GenerateNextOperationName(reduce_mean_1_label);
     const std::string mean_output = GenerateNextOperandName();
 
     std::vector<const char*> reduce_mean_1_inputs = {input.data()};
@@ -2511,7 +2446,7 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     reduce_mean_1_attributes.push_back(model_editor_.CreateAttribute(
         /*name=*/"noop_with_empty_axes", 1));
 
-    model_editor_.AddNode(kOpTypeReduceMean, inserted_node,
+    model_editor_.AddNode(kOpTypeReduceMean, reduce_mean_1,
                           reduce_mean_1_inputs, reduce_mean_1_outputs,
                           std::move(reduce_mean_1_attributes));
 
@@ -2519,24 +2454,31 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     // variance = builder.reduceMean(
     // builder.pow(builder.sub(input, mean), builder.constant(input.dataType,
     // 2)), reduceOptions).
-    inserted_node = GenerateNextOperationName("inserted_sub");
+    const std::string sub_label = base::JoinString(
+        {layer_normalization.label, "inserted_sub"}, kUnderscore);
+    const std::string sub = GenerateNextOperationName(sub_label);
     const std::string sub_output = GenerateNextOperandName();
 
     std::array<const char*, 2> sub_inputs = {input.data(), mean_output.data()};
     std::array<const char*, 1> sub_outputs = {sub_output.data()};
 
-    model_editor_.AddNode(kOpTypeSub, inserted_node, sub_inputs, sub_outputs);
+    model_editor_.AddNode(kOpTypeSub, sub, sub_inputs, sub_outputs);
 
-    inserted_node = GenerateNextOperationName("inserted_pow");
+    const std::string pow_label = base::JoinString(
+        {layer_normalization.label, "inserted_pow"}, kUnderscore);
+    std::string pow = GenerateNextOperationName(pow_label);
     const std::string pow_output = GenerateNextOperandName();
     ASSIGN_OR_RETURN(std::string pow_value, CreateScalarInitializer<float>(2));
     std::array<const char*, 2> pow_inputs = {sub_output.data(),
                                              pow_value.data()};
     std::array<const char*, 1> pow_outputs = {pow_output.data()};
 
-    model_editor_.AddNode(kOpTypePow, inserted_node, pow_inputs, pow_outputs);
+    model_editor_.AddNode(kOpTypePow, pow, pow_inputs, pow_outputs);
 
-    inserted_node = GenerateNextOperationName("inserted_reduce_mean_2");
+    const std::string reduce_mean_2_label = base::JoinString(
+        {layer_normalization.label, "inserted_reduce_mean_2"}, kUnderscore);
+    const std::string reduce_mean_2 =
+        GenerateNextOperationName(reduce_mean_2_label);
     const std::string variance_output = GenerateNextOperandName();
     std::vector<const char*> reduce_mean_2_inputs = {pow_output.data()};
     std::array<const char*, 1> reduce_mean_2_outputs = {variance_output.data()};
@@ -2547,11 +2489,13 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     reduce_mean_2_attributes.push_back(model_editor_.CreateAttribute(
         /*name=*/"noop_with_empty_axes", 1));
     reduce_mean_2_inputs.push_back(axes_name.c_str());
-    model_editor_.AddNode(kOpTypeReduceMean, inserted_node,
+    model_editor_.AddNode(kOpTypeReduceMean, reduce_mean_2,
                           reduce_mean_2_inputs, reduce_mean_2_outputs,
                           std::move(reduce_mean_2_attributes));
 
-    inserted_node = GenerateNextOperationName("inserted_add");
+    const std::string add_label = base::JoinString(
+        {layer_normalization.label, "inserted_add"}, kUnderscore);
+    const std::string add = GenerateNextOperationName(add_label);
     const std::string add_output = GenerateNextOperandName();
     std::string epsilon_value;
     switch (input_data_type) {
@@ -2573,21 +2517,24 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     std::array<const char*, 2> add_inputs = {variance_output.data(),
                                              epsilon_value.data()};
     std::array<const char*, 1> add_outputs = {add_output.data()};
-    model_editor_.AddNode(kOpTypeAdd, inserted_node, add_inputs, add_outputs);
+    model_editor_.AddNode(kOpTypeAdd, add, add_inputs, add_outputs);
 
-    inserted_node = GenerateNextOperationName("inserted_sqrt");
+    const std::string sqrt_label = base::JoinString(
+        {layer_normalization.label, "inserted_sqrt"}, kUnderscore);
+    const std::string sqrt = GenerateNextOperationName(sqrt_label);
     const std::string sqrt_output = GenerateNextOperandName();
     std::array<const char*, 1> sqrt_inputs = {add_output.data()};
     std::array<const char*, 1> sqrt_outputs = {sqrt_output.data()};
-    model_editor_.AddNode(kOpTypeSqrt, inserted_node, sqrt_inputs,
-                          sqrt_outputs);
+    model_editor_.AddNode(kOpTypeSqrt, sqrt, sqrt_inputs, sqrt_outputs);
 
-    inserted_node = GenerateNextOperationName("inserted_div");
+    const std::string div_label = base::JoinString(
+        {layer_normalization.label, "inserted_div"}, kUnderscore);
+    const std::string div = GenerateNextOperationName(div_label);
     const std::string div_output = GenerateNextOperandName();
     std::array<const char*, 2> div_inputs = {sub_output.data(),
                                              sqrt_output.data()};
     std::array<const char*, 1> div_outputs = {div_output.data()};
-    model_editor_.AddNode(kOpTypeDiv, inserted_node, div_inputs, div_outputs);
+    model_editor_.AddNode(kOpTypeDiv, div, div_inputs, div_outputs);
 
     // Reshape to compatible_shape to match the input_shape for emulation
     // calculation.
@@ -2595,26 +2542,42 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     for (auto axis : axes) {
       compatible_shape[axis] = input_shape[axis];
     }
-    ASSIGN_OR_RETURN(scale, CreateOrTransposeScaleForLayerNomalization(
-                                layer_normalization.scale_operand_id,
-                                input_data_type, scale_shape, permutation));
-    ASSIGN_OR_RETURN(scale, PrependReshape(scale, compatible_shape));
+    if (layer_normalization.scale_operand_id) {
+      scale = GetOperandNameById(layer_normalization.scale_operand_id.value());
+      if (!std::ranges::is_sorted(permutation)) {
+        scale = PrependTranspose(scale, permutation);
+      }
+      if (scale_shape.size() != input_shape.size()) {
+        ASSIGN_OR_RETURN(scale, PrependReshape(scale, compatible_shape));
+      }
+    } else {
+      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+                                  input_data_type, compatible_shape, 1.0f));
+    }
+
+    const std::string mul_label = base::JoinString(
+        {layer_normalization.label, "inserted_mul"}, kUnderscore);
+    const std::string mul = GenerateNextOperationName(mul_label);
+    std::array<const char*, 2> mul_inputs = {scale.data(), div_output.data()};
     if (layer_normalization.bias_operand_id) {
-      inserted_node = GenerateNextOperationName("inserted_mul");
       const std::string mul_output = GenerateNextOperandName();
-      std::array<const char*, 2> mul_inputs = {scale.data(), div_output.data()};
       std::array<const char*, 1> mul_outputs = {mul_output.data()};
-      model_editor_.AddNode(kOpTypeMul, inserted_node, mul_inputs, mul_outputs);
+      model_editor_.AddNode(kOpTypeMul, mul, mul_inputs, mul_outputs);
 
       bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
-      bias = PrependTranspose(bias, permutation);
+      if (!std::ranges::is_sorted(permutation)) {
+        bias = PrependTranspose(bias, permutation);
+      }
       ASSIGN_OR_RETURN(bias, PrependReshape(bias, compatible_shape));
+
+      const std::string add_2_label = base::JoinString(
+          {layer_normalization.label, "inserted_add_2"}, kUnderscore);
+      const std::string add_2 = GenerateNextOperationName(add_2_label);
       std::array<const char*, 2> add_2_inputs = {mul_output.data(),
                                                  bias.data()};
-      model_editor_.AddNode(kOpTypeAdd, node, add_2_inputs, outputs);
+      model_editor_.AddNode(kOpTypeAdd, add_2, add_2_inputs, outputs);
     } else {
-      std::array<const char*, 2> mul_inputs = {scale.data(), div_output.data()};
-      model_editor_.AddNode(kOpTypeMul, node, mul_inputs, outputs);
+      model_editor_.AddNode(kOpTypeMul, mul, mul_inputs, outputs);
     }
   }
   return base::ok();
