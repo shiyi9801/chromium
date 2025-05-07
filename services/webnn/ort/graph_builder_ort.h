@@ -169,7 +169,7 @@ class GraphBuilderOrt {
                       const std::vector<uint32_t>& bias_dims);
 
   [[nodiscard]] base::expected<std::string, mojom::ErrorPtr>
-  CreateScaleOrBiasForNomalization(OperandDataType data_type,
+  CreateScaleOrBiasForNormalization(OperandDataType data_type,
                                    base::span<const uint32_t> scale_shape,
                                    float value);
 

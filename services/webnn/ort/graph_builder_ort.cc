@@ -357,7 +357,7 @@ GraphBuilderOrt::CreateOrReshapeBias(const std::optional<uint32_t>& bias_id,
 }
 
 [[nodiscard]] base::expected<std::string, mojom::ErrorPtr>
-GraphBuilderOrt::CreateScaleOrBiasForNomalization(
+GraphBuilderOrt::CreateScaleOrBiasForNormalization(
     OperandDataType data_type,
     base::span<const uint32_t> shape,
     float value) {
@@ -382,7 +382,7 @@ GraphBuilderOrt::CreateScaleOrBiasForNomalization(
       break;
     }
     default:
-      NOTREACHED() << "[WebNN] LayerNormalization only supports float32 "
+      NOTREACHED() << "[WebNN] Normalization only supports float32 "
                       "and float16 data type.";
   }
 
@@ -1021,7 +1021,7 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
     scale = GetOperandNameById(batch_normalization.scale_operand_id.value());
     inputs.push_back(scale.c_str());
   } else {
-    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNormalization(
                                 input_data_type, constant_dims, 1.0f));
     inputs.push_back(scale.c_str());
   }
@@ -1030,7 +1030,7 @@ GraphBuilderOrt::AddBatchNormalizationOperation(
     bias = GetOperandNameById(batch_normalization.bias_operand_id.value());
     inputs.push_back(bias.c_str());
   } else {
-    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNomalization(
+    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNormalization(
                                input_data_type, constant_dims, 0.0f));
     inputs.push_back(bias.c_str());
   }
@@ -2276,7 +2276,7 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     scale = GetOperandNameById(instance_normalization.scale_operand_id.value());
     inputs.push_back(scale.c_str());
   } else {
-    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+    ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNormalization(
                                 input_data_type, constant_dims, 1.0f));
     inputs.push_back(scale.c_str());
   }
@@ -2285,7 +2285,7 @@ GraphBuilderOrt::AddInstanceNormalizationOperation(
     bias = GetOperandNameById(instance_normalization.bias_operand_id.value());
     inputs.push_back(bias.c_str());
   } else {
-    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNomalization(
+    ASSIGN_OR_RETURN(bias, CreateScaleOrBiasForNormalization(
                                input_data_type, constant_dims, 0.0f));
     inputs.push_back(bias.c_str());
   }
@@ -2399,7 +2399,7 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
         scale = PrependTranspose(scale, permutation.value());
       }
     } else {
-      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNormalization(
                                   input_data_type, scale_shape, 1.0f));
     }
     inputs.push_back(scale.c_str());
@@ -2554,7 +2554,7 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
         ASSIGN_OR_RETURN(scale, PrependReshape(scale, compatible_shape));
       }
     } else {
-      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
+      ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNormalization(
                                   input_data_type, compatible_shape, 1.0f));
     }
 
