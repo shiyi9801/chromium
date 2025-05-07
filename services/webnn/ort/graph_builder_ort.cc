@@ -2370,11 +2370,14 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
   // needed. For example input shape is [2, 1, 4, 3], the shape of the scale and
   // bias is [3, 1, 4] if axes is [3, 1, 2], the sorted axes would be [1, 2, 3],
   // then the permutation would be (sorted indices array) [1, 2, 0].
-  // std::optional<std::vector<uint32_t>> permutation;
-  std::vector<uint32_t> permutation(axes_size);
-  std::iota(permutation.begin(), permutation.end(), 0);
-  std::ranges::sort(permutation, std::ranges::less(),
-                    [&axes](uint32_t index) { return axes[index]; });
+  std::optional<std::vector<uint32_t>> permutation;
+  if (!std::ranges::is_sorted(axes)) {
+    std::vector<uint32_t> sorted_indices(axes_size);
+    std::iota(sorted_indices.begin(), sorted_indices.end(), 0);
+    std::ranges::sort(sorted_indices, std::ranges::less(),
+                      [&axes](uint32_t index) { return axes[index]; });
+    permutation = std::move(sorted_indices);
+  }
 
   std::ranges::sort(axes);
   std::vector<uint32_t> scale_shape;
@@ -2392,8 +2395,8 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
       axes[0] == input_shape.size() - axes_size) {
     if (layer_normalization.scale_operand_id) {
       scale = GetOperandNameById(layer_normalization.scale_operand_id.value());
-      if (!std::ranges::is_sorted(permutation)) {
-        scale = PrependTranspose(scale, permutation);
+      if (permutation.has_value()) {
+        scale = PrependTranspose(scale, permutation.value());
       }
     } else {
       ASSIGN_OR_RETURN(scale, CreateScaleOrBiasForNomalization(
@@ -2403,8 +2406,8 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
 
     if (layer_normalization.bias_operand_id) {
       bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
-      if (!std::ranges::is_sorted(permutation)) {
-        bias = PrependTranspose(bias, permutation);
+      if (permutation.has_value()) {
+        bias = PrependTranspose(bias, permutation.value());
       }
       inputs.push_back(bias.c_str());
     }
@@ -2544,8 +2547,8 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
     }
     if (layer_normalization.scale_operand_id) {
       scale = GetOperandNameById(layer_normalization.scale_operand_id.value());
-      if (!std::ranges::is_sorted(permutation)) {
-        scale = PrependTranspose(scale, permutation);
+      if (permutation.has_value()) {
+        scale = PrependTranspose(scale, permutation.value());
       }
       if (scale_shape.size() != input_shape.size()) {
         ASSIGN_OR_RETURN(scale, PrependReshape(scale, compatible_shape));
@@ -2565,8 +2568,8 @@ GraphBuilderOrt::AddLayerNormalizationOperation(
       model_editor_.AddNode(kOpTypeMul, mul, mul_inputs, mul_outputs);
 
       bias = GetOperandNameById(layer_normalization.bias_operand_id.value());
-      if (!std::ranges::is_sorted(permutation)) {
-        bias = PrependTranspose(bias, permutation);
+      if (permutation.has_value()) {
+        bias = PrependTranspose(bias, permutation.value());
       }
       ASSIGN_OR_RETURN(bias, PrependReshape(bias, compatible_shape));
 
