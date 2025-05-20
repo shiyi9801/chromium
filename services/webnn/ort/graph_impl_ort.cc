@@ -32,10 +32,10 @@ namespace {
 
 struct Session {
   Session(ScopedOrtEnv env,
-          std::unique_ptr<OrtModelEditor::WeightDeleter> weight_deleter,
+          std::unique_ptr<OrtModelEditor::WeightsDeleter> weights_deleter,
           ScopedOrtSession session)
       : env(std::move(env)),
-        weight_deleter(std::move(weight_deleter)),
+        weights_deleter(std::move(weights_deleter)),
         session(std::move(session)) {}
   Session(const Session&) = delete;
   Session& operator=(const Session&) = delete;
@@ -48,9 +48,9 @@ struct Session {
   // used during `session` destruction.
   ScopedOrtEnv env;
 
-  // `weight_deleter` should be prior to `session` since `weight_deleter` will
+  // `weights_deleter` should be prior to `session` since `weights_deleter` will
   // be used for deleting the weights when `session` is destroyed.
-  std::unique_ptr<OrtModelEditor::WeightDeleter> weight_deleter;
+  std::unique_ptr<OrtModelEditor::WeightsDeleter> weights_deleter;
 
   ScopedOrtSession session;
 };
@@ -198,7 +198,7 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
 
   scoped_trace.AddStep("Create compute resources");
   auto compute_session = base::WrapUnique(
-      new Session(std::move(env), std::move(model_info->weight_deleter),
+      new Session(std::move(env), std::move(model_info->weights_deleter),
                   std::move(session)));
 
   base::flat_map<std::string, std::string>

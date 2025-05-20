@@ -41,18 +41,18 @@ constexpr size_t kMinExternalDataSize = 128;
 
 class OrtModelEditor {
  public:
-  // The `WeightDeleter` is used by ORT to free the weights (external data) that
-  // is no longer in use. It should not be destroyed until all the weights are
-  // freed.
-  struct WeightDeleter : public OrtAllocator {
+  // The `WeightsDeleter` is used by ORT to free the weights (external data)
+  // that is no longer in use. It should not be destroyed until all the weights
+  // are freed.
+  struct WeightsDeleter : public OrtAllocator {
    public:
-    WeightDeleter();
-    WeightDeleter(const WeightDeleter&) = delete;
-    WeightDeleter& operator=(const WeightDeleter&) = delete;
-    ~WeightDeleter();
+    WeightsDeleter();
+    WeightsDeleter(const WeightsDeleter&) = delete;
+    WeightsDeleter& operator=(const WeightsDeleter&) = delete;
+    ~WeightsDeleter();
 
-    // Track the data to be freed by ORT.
-    void Track(base::HeapArray<uint8_t> data);
+    // Take the weights and keep it until being freed by ORT.
+    void Take(base::HeapArray<uint8_t> data);
 
    private:
     void FreeImpl(void* p);
@@ -71,7 +71,7 @@ class OrtModelEditor {
 
     // `weight_deleter` should be prior to `session` since `weight_deleter` will
     // be used for deleting the weights when `model` is destroyed.
-    std::unique_ptr<WeightDeleter> weight_deleter;
+    std::unique_ptr<WeightsDeleter> weights_deleter;
 
     ScopedOrtModel model;
   };

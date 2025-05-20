@@ -16,18 +16,21 @@ namespace webnn {
 
 namespace ort {
 
-OrtModelEditor::WeightDeleter::WeightDeleter() {
+OrtModelEditor::WeightsDeleter::WeightsDeleter() {
   const OrtApi* ort_api = GetOrtApi();
   CHECK(IsSuccess(ort_api->CreateCpuMemoryInfo(
       OrtDeviceAllocator, OrtMemTypeDefault,
       ScopedOrtMemoryInfo::Receiver(cpu_memory_info).get())));
 
+  // `OrtAllocator` is a C-style structure (with a pointer to its definition),
+  // `Info` and `Free` are just function pointers that need to be set to lambda
+  // functions.
   OrtAllocator::version = ORT_API_VERSION;
   OrtAllocator::Info = [](const OrtAllocator* this_) -> const OrtMemoryInfo* {
-    return static_cast<const WeightDeleter*>(this_)->cpu_memory_info.get();
+    return static_cast<const WeightsDeleter*>(this_)->cpu_memory_info.get();
   };
   OrtAllocator::Free = [](OrtAllocator* this_, void* p) -> void {
-    static_cast<WeightDeleter*>(this_)->FreeImpl(p);
+    static_cast<WeightsDeleter*>(this_)->FreeImpl(p);
   };
   OrtAllocator::Alloc = [](OrtAllocator* /*this_*/, size_t /*size*/) -> void* {
     NOTREACHED() << "[WebNN] OrtAllocator::Alloc() should never be called.";
@@ -38,17 +41,17 @@ OrtModelEditor::WeightDeleter::WeightDeleter() {
   };
 }
 
-OrtModelEditor::WeightDeleter::~WeightDeleter() {
+OrtModelEditor::WeightsDeleter::~WeightsDeleter() {
   LOG_IF(FATAL, !weights.empty())
       << "[WebNN] All the weights should be freed by ORT before "
-         "`WeightDeleter` is destroyed.";
+         "`WeightsDeleter` is destroyed.";
 }
 
-void OrtModelEditor::WeightDeleter::Track(base::HeapArray<uint8_t> data) {
+void OrtModelEditor::WeightsDeleter::Take(base::HeapArray<uint8_t> data) {
   weights.push_back(std::move(data));
 }
 
-void OrtModelEditor::WeightDeleter::FreeImpl(void* p) {
+void OrtModelEditor::WeightsDeleter::FreeImpl(void* p) {
   // Exactly one element should be erased.
   CHECK_EQ(std::erase_if(weights,
                          [p](const base::HeapArray<uint8_t>& data) {
@@ -58,7 +61,7 @@ void OrtModelEditor::WeightDeleter::FreeImpl(void* p) {
 }
 
 OrtModelEditor::ModelInfo::ModelInfo()
-    : weight_deleter(std::make_unique<WeightDeleter>()) {}
+    : weights_deleter(std::make_unique<WeightsDeleter>()) {}
 OrtModelEditor::ModelInfo::~ModelInfo() = default;
 
 ScopedOrtValueInfo CreateOrtValueInfo(std::string_view name,
@@ -162,11 +165,11 @@ void OrtModelEditor::AddOutput(std::string_view name,
   auto weight = base::HeapArray<uint8_t>::CopiedFrom(data);
 
   RETURN_STATUS_IF_FAILED(GetOrtApi()->CreateTensorWithDataAndDeleterAsOrtValue(
-      model_info_->weight_deleter.get(), weight.data(), weight.size(),
+      model_info_->weights_deleter.get(), weight.data(), weight.size(),
       shape.data(), shape.size(), data_type,
       ScopedOrtValue::Receiver(initializer).get()));
 
-  model_info_->weight_deleter->Track(std::move(weight));
+  model_info_->weights_deleter->Take(std::move(weight));
 
   // Graph will own the initializer.
   RETURN_STATUS_IF_FAILED(GetOrtModelEditorApi()->AddInitializerToGraph(
