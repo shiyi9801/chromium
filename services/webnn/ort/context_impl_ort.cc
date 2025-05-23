@@ -311,6 +311,21 @@ ContextProperties ContextImplOrt::GetContextProperties(
       use_ov_gpu ? DataTypeConstraint::kFloat16To32
                  : DataTypeConstraint::kAllDataTypesAtLeast8bits;
 
+  // According to
+  // https://docs.openvino.ai/2025/openvino-workflow/running-inference/inference-devices-and-modes/npu-device.html,
+  // OV EP NPU doesn't support float32 execution.
+  auto RemoveOVNpuFP32 =
+      [&](SupportedDataTypes data_types) -> SupportedDataTypes {
+    if (base::FeatureList::IsEnabled(mojom::features::kWebNNOrtOpenVino) &&
+        device_type == mojom::CreateContextOptions::Device::kNpu) {
+      data_types.RemoveAll(DataTypeConstraint::kFloat32);
+    }
+    return data_types;
+  };
+
+  // Models that cast float32 inputs to float16 are widely used and are
+  // supported by OV EP NPU. Therefore, `RemoveOVNpuFP32` is applied to all
+  // tensors except `input`, `constant`, and `cast_input`.
   return ContextProperties(
       InputOperandLayout::kNchw, Resample2DAxes::kChannelsFirst,
       BatchNormalizationAxis::kChannelsFirst,
@@ -318,203 +333,285 @@ ContextProperties ContextImplOrt::GetContextProperties(
       {/*input=*/SupportedDataTypes::All(),
        /*constant=*/SupportedDataTypes::All(),
        /*arg_min_max_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*arg_min_max_output=*/DataTypeConstraint::kInt32To64,
        /*batch_normalization_input=*/
-       {DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
        /*batch_normalization_mean=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
-       /*cast_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
+       /*cast_input=*/
+       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
        /*clamp_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*concat_inputs=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*conv2d_input=*/{DataTypeConstraint::kFloat16To32, {3, 8}},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*conv2d_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), {3, 8}},
        /*conv2d_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
        /*conv_transpose2d_input=*/
-       {DataTypeConstraint::kFloat16To32, {3, 8}},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), {3, 8}},
        /*conv_transpose2d_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
        /*cumulative_sum_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*dequantize_linear_input=*/
-       {kDequantizeLinearInputSupportedDataTypes, kMaxRank},
-       /*dequantize_linear_scale=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(kDequantizeLinearInputSupportedDataTypes), kMaxRank},
+       /*dequantize_linear_scale=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*dequantize_linear_zero_point=*/
-       {kDequantizeLinearInputSupportedDataTypes, kMaxRank},
+       {RemoveOVNpuFP32(kDequantizeLinearInputSupportedDataTypes), kMaxRank},
        /*add_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*sub_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*mul_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*div_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*max_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*min_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*pow_input=*/
-       {DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*equal_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*greater_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*greater_or_equal_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*lesser_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*lesser_or_equal_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*not_equal_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*logical_and_input=*/
-       {DataTypeConstraint::kUint8, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kUint8), kMaxRank},
        /*logical_or_input=*/
-       {DataTypeConstraint::kUint8, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kUint8), kMaxRank},
        /*logical_xor_input=*/
-       {DataTypeConstraint::kUint8, kMaxRank},
-       /*logical_not_input=*/{DataTypeConstraint::kUint8, kMaxRank},
-       /*logical_output=*/DataTypeConstraint::kUint8,
-       /*abs_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*ceil_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*cos_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*erf_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*exp_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*floor_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kUint8), kMaxRank},
+       /*logical_not_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kUint8), kMaxRank},
+       /*logical_output=*/RemoveOVNpuFP32(DataTypeConstraint::kUint8),
+       /*abs_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*ceil_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*cos_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*erf_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*exp_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*floor_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*identity_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*log_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*neg_input=*/{DataTypeConstraint::kFloat16To32Int8To64, kMaxRank},
-       /*reciprocal_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*sign_input=*/{kSignInputSupportedDataTypes, kMaxRank},
-       /*sin_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*sqrt_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*tan_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*log_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*neg_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Int8To64), kMaxRank},
+       /*reciprocal_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*sign_input=*/
+       {RemoveOVNpuFP32(kSignInputSupportedDataTypes), kMaxRank},
+       /*sin_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*sqrt_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*tan_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*elu_input=*/
-       {DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*expand_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*gather_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*gather_indices=*/
-       {DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes, kMaxRank},
+       {RemoveOVNpuFP32(
+            DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes),
+        kMaxRank},
        /*gather_elements_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*gather_elements_indices=*/
-       {DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes,
+       {RemoveOVNpuFP32(
+            DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes),
         kNonScalarMaxRank},
        /*gather_nd_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
-       /*gather_nd_indices=*/
-       {DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes,
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
         kNonScalarMaxRank},
-       /*gelu_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       /*gather_nd_indices=*/
+       {RemoveOVNpuFP32(
+            DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes),
+        kNonScalarMaxRank},
+       /*gelu_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*gemm_a=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, SupportedRanks::Exactly(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64),
+        SupportedRanks::Exactly(2)},
        /*gemm_c=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, SupportedRanks::UpTo(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64),
+        SupportedRanks::UpTo(2)},
        /*gru_input=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(3)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(3)},
        /*gru_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(2)},
        /*gru_cell_input=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(2)},
        /*gru_cell_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
-       /*hard_sigmoid_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*hard_swish_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
+       /*hard_sigmoid_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*hard_swish_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*instance_normalization_input=*/
-       {DataTypeConstraint::kFloat16To32, {3, 8}},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), {3, 8}},
        /*instance_normalization_scale=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
        /*layer_normalization_input=*/
-       {DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
        /*leaky_relu_input=*/
-       {DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*linear_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*linear_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*lstm_input=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(3)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(3)},
        /*lstm_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(2)},
        /*lstm_cell_input=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(2)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(2)},
        /*lstm_cell_bias=*/
-       {DataTypeConstraint::kFloat16To32, SupportedRanks::Exactly(1)},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32),
+        SupportedRanks::Exactly(1)},
        /*matmul_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
-       // TODO: Support more data types including int4.
-       // https://github.com/shiyi9801/chromium/issues/85
-       /*pad_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
+       /*pad_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*average_pool2d_input=*/
-       {DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
        /*l2_pool2d_input=*/
-       {DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
        /*max_pool2d_input=*/
-       {DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
        /*prelu_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*quantize_linear_input=*/
-       {kQuantizeLinearInputSupportedDataTypes, kMaxRank},
+       {RemoveOVNpuFP32(kQuantizeLinearInputSupportedDataTypes), kMaxRank},
        /*quantize_linear_zero_point=*/
-       {DataTypeConstraint::kInts4ToInts8, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kInts4ToInts8), kMaxRank},
        /*reduce_l1_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_l2_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_log_sum_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_log_sum_exp_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_max_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_mean_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_min_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_product_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_sum_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
        /*reduce_sum_square_input=*/
-       {DataTypeConstraint::kFloat16To32Ints32To64, kMaxRank},
-       /*relu_input=*/{DataTypeConstraint::kFloat16To32Int8To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Ints32To64), kMaxRank},
+       /*relu_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32Int8To32), kMaxRank},
        /*resample2d_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*reshape_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*reverse_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*scatter_elements_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*scatter_elements_indices=*/
-       {DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes,
+       {RemoveOVNpuFP32(
+            DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes),
         kNonScalarMaxRank},
        /*scatter_nd_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
        /*scatter_nd_indices=*/
-       {DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes,
+       {RemoveOVNpuFP32(
+            DataTypeConstraint::kGatherScatterIndicesSupportedDataTypes),
         kNonScalarMaxRank},
        /*scatter_nd_updates=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*sigmoid_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*sigmoid_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*slice_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
-       /*softmax_input=*/{DataTypeConstraint::kFloat16To32, kNonScalarMaxRank},
-       /*softplus_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*softsign_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
+       /*softmax_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kNonScalarMaxRank},
+       /*softplus_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*softsign_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
        /*split_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kNonScalarMaxRank},
-       /*tanh_input=*/{DataTypeConstraint::kFloat16To32, kMaxRank},
-       /*tile_input=*/{DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kNonScalarMaxRank},
+       /*tanh_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kFloat16To32), kMaxRank},
+       /*tile_input=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*transpose_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank},
        /*triangular_input=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, {2, 8}},
-       /*where_condition=*/{DataTypeConstraint::kUint8, kMaxRank},
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits), {2, 8}},
+       /*where_condition=*/
+       {RemoveOVNpuFP32(DataTypeConstraint::kUint8), kMaxRank},
        /*where_value=*/
-       {DataTypeConstraint::kAllDataTypesAtLeast8bits, kMaxRank}});
+       {RemoveOVNpuFP32(DataTypeConstraint::kAllDataTypesAtLeast8bits),
+        kMaxRank}});
 }
 
 base::WeakPtr<WebNNContextImpl> ContextImplOrt::AsWeakPtr() {
