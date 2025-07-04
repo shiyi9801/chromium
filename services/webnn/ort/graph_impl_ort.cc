@@ -144,6 +144,8 @@ void GraphImplOrt::CreateAndBuild(
     WebNNContextImpl::CreateGraphImplCallback callback) {
   ScopedTrace scoped_trace("GraphImplOrt::CreateAndBuild");
 
+  auto operand_to_dependent_operations =
+      compute_resource_info.operand_to_dependent_operations;
   auto wrapped_callback = base::BindPostTaskToCurrentDefault(
       base::BindOnce(&GraphImplOrt::DidCreateAndBuild, std::move(receiver),
                      context->AsWeakPtr(), std::move(compute_resource_info),
@@ -156,6 +158,7 @@ void GraphImplOrt::CreateAndBuild(
       base::BindOnce(&GraphImplOrt::CreateAndBuildOnBackgroundThread,
                      std::move(graph_info), context->session_options(),
                      context->properties(), std::move(constant_operands),
+                     std::move(operand_to_dependent_operations),
                      std::move(scoped_trace)),
       std::move(wrapped_callback));
 }
@@ -168,12 +171,15 @@ GraphImplOrt::CreateAndBuildOnBackgroundThread(
     ContextProperties context_properties,
     base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>
         constant_operands,
+    base::flat_map<uint64_t, base::flat_set<size_t>>
+        operand_to_dependent_operations,
     ScopedTrace scoped_trace) {
   scoped_trace.AddStep("Create model info");
   ASSIGN_OR_RETURN(std::unique_ptr<OrtModelEditor::ModelInfo> model_info,
                    GraphBuilderOrt::CreateAndBuild(
                        *graph_info, std::move(context_properties),
-                       std::move(constant_operands)));
+                       std::move(constant_operands),
+                       std::move(operand_to_dependent_operations)));
 
   // `CreateEnv()` will increase the reference count and return the reference of
   // the existing `OrtEnv` instance that is created by context provider. `env`
