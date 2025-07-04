@@ -669,7 +669,13 @@ struct GraphFusionInfo {
 // on that the `operations` in `mojom::GraphInfo` have been in topological
 // order which means if operation 'j' depends on 'i', 'i' must appear before
 // 'j'.
-GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
+GraphFusionInfo GetGraphFusionInfo(
+    const mojom::GraphInfo& graph_info,
+    const base::flat_map<uint64_t, base::flat_set<size_t>>&
+        operand_to_dependent_operations,
+    base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>&
+        constant_operands,
+    const ContextProperties& context_properties) {
   // If it's disabled, just return empty 'GraphFusionInfo' object which means no
   // graph fusion will be applied since currently we only enable matmulnbits
   // fusion.
@@ -695,17 +701,6 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
   std::map<uint64_t, const mojom::Operation*>
       input_id_to_reshape_transpose_matmul_map;
 
-  // A map to record how many times each operand id is used as one
-  // operation's input edge or the graph's output edge.
-  std::map<uint64_t, uint32_t> operand_id_to_use_count_map;
-  for (const auto& pair : graph_info.id_to_operand_map) {
-    operand_id_to_use_count_map[pair.first] = 0;
-  }
-
-  for (uint64_t graph_output_id : graph_info.output_operands) {
-    ++operand_id_to_use_count_map[graph_output_id];
-  }
-
   // Iterate from the end of operations instead from the beginning, so we
   // can easily get the total use count of a fusible operation's output
   // edge before visiting it.
@@ -716,10 +711,6 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
     RetrieveOperationConnectivity(
         operation.get(),
         /*out_operation_connectivity*/ operation_connectivity);
-
-    for (uint64_t input_id : operation_connectivity.input_ids) {
-      ++operand_id_to_use_count_map[input_id];
-    }
 
     // Try to find the operations that can be fused into a MatMulNBits
     // operation following the decomposed pattern used by ONNX Runtime WebNN
@@ -774,7 +765,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         // The matmul has only 1 transpose input and the tranpose must have 1
         // output edge and not be a graph output
         if (!input_b_id_to_matmul_map.contains(output_id) ||
-            operand_id_to_use_count_map[output_id] != 1) {
+            operand_to_dependent_operations.at(output_id).size() != 1) {
           break;
         }
         // Transpose's permuation must be {1, 0}.
@@ -790,7 +781,7 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
         uint64_t output_id = operation_connectivity.output_ids[0];
         if (!input_id_to_transpose_matmul_map.contains(output_id) ||
-            operand_id_to_use_count_map[output_id] != 1) {
+            operand_to_dependent_operations.at(output_id).size() != 1) {
           break;
         }
         const mojom::OperandPtr& input_operand =
@@ -811,26 +802,37 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         CHECK_EQ(operation_connectivity.output_ids.size(), 1U);
         uint64_t output_id = operation_connectivity.output_ids[0];
         if (!input_id_to_reshape_transpose_matmul_map.contains(output_id) ||
-            operand_id_to_use_count_map[output_id] != 1) {
+            operand_to_dependent_operations.at(output_id).size() != 1) {
           break;
         }
         const mojom::DequantizeLinearPtr& dequantize_linear =
             operation->get_dequantize_linear();
+        const uint64_t input_operand_id = dequantize_linear->input_operand_id;
+        const uint64_t scale_operand_id = dequantize_linear->scale_operand_id;
+        const uint64_t zero_point_operand_id =
+            dequantize_linear->zero_point_operand_id;
         // Input, scale and zeroPoint must be constants.
         if (!graph_info.constant_operand_ids_to_handles.contains(
-                dequantize_linear->input_operand_id) ||
+                input_operand_id) ||
             !graph_info.constant_operand_ids_to_handles.contains(
-                dequantize_linear->scale_operand_id) ||
+                scale_operand_id) ||
             !graph_info.constant_operand_ids_to_handles.contains(
-                dequantize_linear->zero_point_operand_id)) {
+                zero_point_operand_id)) {
           break;
         }
+
+        // Input, scale and zeroPoint must be only used by dequantizeLinear.
+        if (operand_to_dependent_operations.at(input_operand_id).size() > 1 ||
+            operand_to_dependent_operations.at(scale_operand_id).size() > 1 ||
+            operand_to_dependent_operations.at(zero_point_operand_id).size() >
+                1) {
+          break;
+        }
+
         const mojom::OperandPtr& input_operand =
-            graph_info.id_to_operand_map.at(
-                dequantize_linear->input_operand_id);
+            graph_info.id_to_operand_map.at(input_operand_id);
         const mojom::OperandPtr& scale_operand =
-            graph_info.id_to_operand_map.at(
-                dequantize_linear->scale_operand_id);
+            graph_info.id_to_operand_map.at(scale_operand_id);
 
         // Scale/output types must be float or float16.
         auto scale_data_type = scale_operand->descriptor.data_type();
@@ -869,6 +871,34 @@ GraphFusionInfo GetGraphFusionInfo(const mojom::GraphInfo& graph_info) {
         graph_fusion_info.matmul_input_b_to_fusible_dequantize_map
             [transpose->get_transpose()->output_operand_id] = operation.get();
 
+        const std::vector<uint32_t>& input_shape =
+            input_operand->descriptor.shape();
+        uint32_t input_feature_size = input_shape[0];
+        uint32_t quant_num = input_shape[1];
+        uint32_t blob_bytes = input_shape[2] / 2;
+        std::vector<uint32_t> new_input_shape = {input_feature_size, quant_num,
+                                                 blob_bytes};
+        auto& input_constant =
+            constant_operands.at(dequantize_linear->input_operand_id);
+        auto new_input_desc = *OperandDescriptor::Create(
+            context_properties, OperandDataType::kUint8, new_input_shape,
+            dequantize_linear->label);
+        auto new_input_constant = std::make_unique<WebNNConstantOperand>(
+            std::move(new_input_desc), input_constant->TakeData());
+        constant_operands.at(dequantize_linear->input_operand_id) =
+            std::move(new_input_constant);
+
+        auto& zero_point_constant =
+            constant_operands.at(dequantize_linear->zero_point_operand_id);
+        std::vector<uint32_t> new_zero_point_shape = {input_feature_size *
+                                                      ((quant_num + 1) / 2)};
+        auto new_zero_point_desc = *OperandDescriptor::Create(
+            context_properties, OperandDataType::kUint8, new_zero_point_shape,
+            dequantize_linear->label);
+        auto new_zero_point_constant = std::make_unique<WebNNConstantOperand>(
+            std::move(new_zero_point_desc), zero_point_constant->TakeData());
+        constant_operands.at(dequantize_linear->zero_point_operand_id) =
+            std::move(new_zero_point_constant);
         break;
       }
       default: {
@@ -893,9 +923,12 @@ GraphBuilderOrt::CreateAndBuild(
     const mojom::GraphInfo& graph_info,
     ContextProperties context_properties,
     base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>
-        constant_operands) {
+        constant_operands,
+    base::flat_map<uint64_t, base::flat_set<size_t>>
+        operand_to_dependent_operation) {
   GraphBuilderOrt graph_builder(graph_info, std::move(context_properties),
-                                std::move(constant_operands));
+                                std::move(constant_operands),
+                                std::move(operand_to_dependent_operation));
 
   return graph_builder.BuildModel();
 }
@@ -904,9 +937,13 @@ GraphBuilderOrt::GraphBuilderOrt(
     const mojom::GraphInfo& graph_info,
     ContextProperties context_properties,
     base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>
-        constant_operands)
+        constant_operands,
+    base::flat_map<uint64_t, base::flat_set<size_t>>
+        operand_to_dependent_operation)
     : graph_info_(graph_info),
       constant_operands_(std::move(constant_operands)),
+      operand_to_dependent_operations_(
+          std::move(operand_to_dependent_operation)),
       context_properties_(std::move(context_properties)),
       model_editor_(OrtModelEditor()) {
   for (const auto& [id, _] : graph_info.id_to_operand_map) {
@@ -3550,27 +3587,12 @@ GraphBuilderOrt::AddMatMulOperation(
 
     uint32_t input_feature_size = input_b_shape[0];
     uint32_t quant_num = input_b_shape[1];
-    uint32_t blob_bytes = input_b_shape[2] / 2;
     uint32_t block_size = input_b_shape[2];
     uint32_t output_feature_size = quant_num * block_size;
 
-    const WebNNConstantOperand& input_constant =
-        *constant_operands_.at(dequantize_linear->input_operand_id);
-    std::vector<uint32_t> new_input_buffer_shape = {input_feature_size,
-                                                    quant_num, blob_bytes};
-
-    ASSIGN_OR_RETURN(input_b,
-                     CreateInitializer<uint8_t>(new_input_buffer_shape,
-                                                input_constant.ByteSpan()));
-
-    const WebNNConstantOperand& zero_point_constant =
-        *constant_operands_.at(dequantize_linear->zero_point_operand_id);
-    std::vector<uint32_t> new_zero_point_buffer_shape = {input_feature_size *
-                                                         ((quant_num + 1) / 2)};
-    ASSIGN_OR_RETURN(
-        std::string zero_point,
-        CreateInitializer<uint8_t>(new_zero_point_buffer_shape,
-                                   zero_point_constant.ByteSpan()));
+    input_b = GetOperandNameById(dequantize_linear->input_operand_id);
+    std::string zero_point =
+        GetOperandNameById(dequantize_linear->zero_point_operand_id);
 
     std::string scale = GetOperandNameById(dequantize_linear->scale_operand_id);
     // Here we insert a reshape since the original reshape has been folded into
@@ -4234,6 +4256,10 @@ GraphBuilderOrt::BuildModel() {
     AddInput(input_id);
   }
 
+  GraphFusionInfo graph_fusion_info =
+      GetGraphFusionInfo(*graph_info_, operand_to_dependent_operations_,
+                         constant_operands_, context_properties_);
+
   // Add initializers.
   for (const auto& [constant_id, _] : constant_operands_) {
     RETURN_IF_ERROR(AddInitializer(constant_id));
@@ -4242,8 +4268,6 @@ GraphBuilderOrt::BuildModel() {
 
   // Find all the bool operands.
   FindBoolOperands();
-
-  GraphFusionInfo graph_fusion_info = GetGraphFusionInfo(*graph_info_);
 
   // Add operations.
   for (const mojom::OperationPtr& operation : graph_info_->operations) {

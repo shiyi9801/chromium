@@ -66,6 +66,8 @@ class GraphImplOrt final : public WebNNGraphImpl {
       ContextProperties context_properties,
       base::flat_map<uint64_t, std::unique_ptr<WebNNConstantOperand>>
           constant_operands,
+      base::flat_map<uint64_t, base::flat_set<size_t>>
+          operand_to_dependent_operations,
       ScopedTrace scoped_trace);
 
   static void DidCreateAndBuild(
