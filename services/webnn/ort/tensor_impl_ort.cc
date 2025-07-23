@@ -11,6 +11,7 @@
 #include "services/webnn/ort/error_ort.h"
 #include "services/webnn/ort/scoped_ort_types.h"
 #include "services/webnn/ort/utils_ort.h"
+#include "services/webnn/public/cpp/webnn_trace.h"
 #include "services/webnn/public/mojom/webnn_tensor.mojom.h"
 #include "services/webnn/resource_task.h"
 
@@ -96,10 +97,13 @@ TensorImplOrt::GetBufferState() const {
 void TensorImplOrt::ReadTensorImpl(ReadTensorCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  ScopedTrace scoped_trace("TensorImplOrt::ReadTensorImpl");
+
   // Lock the buffer contents as shared/read-only.
   std::vector<scoped_refptr<QueueableResourceStateBase>> shared_resources = {
       buffer_state_};
 
+  scoped_trace.AddStep("Wait for tensor");
   auto task = base::MakeRefCounted<ResourceTask>(
       /*shared_resources=*/
       std::move(shared_resources),
@@ -110,7 +114,8 @@ void TensorImplOrt::ReadTensorImpl(ReadTensorCallback callback) {
              scoped_refptr<QueueableResourceState<BufferContentOrt>>
                  buffer_state,
              ReadTensorCallback read_tensor_result_callback,
-             base::OnceClosure completion_closure) {
+             ScopedTrace scoped_trace, base::OnceClosure completion_closure) {
+            scoped_trace.AddStep("Begin read");
             void* ort_tensor_raw_data = nullptr;
             CHECK(IsSuccess(GetOrtApi()->GetTensorMutableData(
                 buffer_state->GetSharedLockedResource().tensor(),
@@ -121,25 +126,29 @@ void TensorImplOrt::ReadTensorImpl(ReadTensorCallback callback) {
             mojo_base::BigBuffer output_buffer(UNSAFE_BUFFERS(
                 base::span(static_cast<const uint8_t*>(ort_tensor_raw_data),
                            bytes_to_read)));
-
-            // Unlock the buffer contents.
-            std::move(completion_closure).Run();
             std::move(read_tensor_result_callback)
                 .Run(mojom::ReadTensorResult::NewBuffer(
                     std::move(output_buffer)));
+
+            scoped_trace.AddStep("End read");
+            // Unlock the buffer contents.
+            std::move(completion_closure).Run();
           },
           /*bytes_to_read=*/PackedByteLength(), buffer_state_,
-          std::move(callback)));
+          std::move(callback), std::move(scoped_trace)));
   task->Enqueue();
 }
 
 void TensorImplOrt::WriteTensorImpl(mojo_base::BigBuffer src_buffer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  ScopedTrace scoped_trace("TensorImplOrt::WriteTensorImpl");
+
   // Take an exclusive lock to the buffer contents while writing.
   std::vector<scoped_refptr<QueueableResourceStateBase>> exclusive_resources = {
       buffer_state_};
 
+  scoped_trace.AddStep("Wait for tensor");
   auto task = base::MakeRefCounted<ResourceTask>(
       /*shared_resources=*/
       std::vector<scoped_refptr<QueueableResourceStateBase>>(),
@@ -148,8 +157,9 @@ void TensorImplOrt::WriteTensorImpl(mojo_base::BigBuffer src_buffer) {
       base::BindOnce(
           [](scoped_refptr<QueueableResourceState<BufferContentOrt>>
                  buffer_state,
-             mojo_base::BigBuffer src_buffer,
+             mojo_base::BigBuffer src_buffer, ScopedTrace scoped_trace,
              base::OnceClosure completion_closure) {
+            scoped_trace.AddStep("Begin write");
             void* ort_tensor_raw_data = nullptr;
             CHECK(IsSuccess(GetOrtApi()->GetTensorMutableData(
                 buffer_state->GetExclusivelyLockedResource()->tensor(),
@@ -160,10 +170,11 @@ void TensorImplOrt::WriteTensorImpl(mojo_base::BigBuffer src_buffer) {
                            src_buffer.size()))
                 .copy_from(src_buffer);
 
+            scoped_trace.AddStep("End write");
             // Unlock the buffer contents.
             std::move(completion_closure).Run();
           },
-          buffer_state_, std::move(src_buffer)));
+          buffer_state_, std::move(src_buffer), std::move(scoped_trace)));
   task->Enqueue();
 }
 
